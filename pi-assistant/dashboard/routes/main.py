@@ -5,15 +5,17 @@ Serves the HTML pages of the web dashboard.
 
 Routes
 ------
-GET /          — Main dashboard page (status overview)
-GET /memory    — Browse long-term memory entries
-GET /scheduler — View scheduled jobs
-GET /plugins   — Plugin status and health
+GET /           — Redirect to /chat (chat is now the primary view)
+GET /chat       — Live chat interface with the betting assistant ★ NEW
+GET /overview   — System status overview
+GET /memory     — Browse long-term memory entries
+GET /scheduler  — View scheduled jobs
+GET /plugins    — Plugin status and health
 """
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, render_template
+from flask import Blueprint, current_app, redirect, render_template, url_for
 from flask_login import login_required
 
 from core.logger import get_logger
@@ -31,12 +33,29 @@ def _get_assistant():
 @main_bp.route("/")
 @login_required
 def index():
-    """
-    Main dashboard overview.
+    """Root — redirect to chat (the primary interface)."""
+    return redirect(url_for("main.chat"))
 
-    Passes assistant status (scheduler state, plugin list, command count)
-    to the template.
+
+@main_bp.route("/chat")
+@login_required
+def chat():
     """
+    Live chat interface.
+
+    Loads recent conversation history so the UI shows the last session.
+    """
+    assistant = _get_assistant()
+    history = []
+    if assistant and assistant.memory:
+        history = assistant.memory.get_history(limit=50)
+    return render_template("chat.html", history=history)
+
+
+@main_bp.route("/overview")
+@login_required
+def overview():
+    """System status overview — scheduler, plugins, commands."""
     assistant = _get_assistant()
     status = assistant.status() if assistant else {}
     return render_template("index.html", status=status)

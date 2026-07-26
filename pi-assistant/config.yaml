@@ -70,4 +70,27 @@ plugins:
   # Explicitly disable specific plugins by folder name
   disabled: []
   # Plugin-specific configuration (keyed by plugin name)
-  settings: {}
+  settings:
+    betting_assistant:
+      # Max conversation turns included in each AI request
+      history_limit: 20
+    example_skill:
+      # Set to false to silence the example plugin once you no longer need it
+      enabled: true
+
+# ── Conversation ───────────────────────────────────────────────────────────────
+conversation:
+  # Maximum history turns sent to the AI on each request
+  history_limit: 20
+  # Default sport focus shown in context (blank = no default)
+  default_sport: ""
+
+# ── Sports Betting ─────────────────────────────────────────────────────────────
+betting:
+  # Starting bankroll shown in the dashboard (set via /api/bankroll or the UI)
+  starting_bankroll: 0.0
+  # Default stake unit as a % of bankroll (for bet-sizing suggestions)
+  unit_pct: 2.0
+  # Sports you follow most — shown in the system prompt as context
+  # e.g. ["NFL", "NBA", "Soccer - EPL", "UFC"]
+  tracked_sports: []

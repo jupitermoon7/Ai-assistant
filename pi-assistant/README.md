@@ -22,28 +22,37 @@ pi-assistant/
 │   ├── logger.py              # Centralised structured logging
 │   ├── memory.py              # Long-term memory (SQLite, upgradeable)
 │   ├── scheduler.py           # Task scheduler (APScheduler)
-│   └── plugin_manager.py      # Plugin discovery and lifecycle manager
+│   ├── plugin_manager.py      # Plugin discovery and lifecycle manager
+│   └── conversation.py        # AI conversation manager (history + system prompt)
 │
 ├── api/                       # API integration layer
-│   ├── ai_client.py           # OpenAI-compatible LLM client
-│   └── external.py            # Generic external service client
+│   ├── ai_client.py           # OpenAI-compatible LLM client (OpenAI / Ollama)
+│   └── external.py            # Generic external service client (base class)
 │
 ├── plugins/                   # Skills / feature plugins (drop-in)
+│   ├── betting_assistant/     # ★ Primary plugin — sports betting AI
+│   │   └── skill.py           # chat, analyze_bet, track_bet, bankroll commands
 │   └── example_skill/         # Reference plugin implementation
-│       ├── __init__.py
 │       └── skill.py
 │
 ├── dashboard/                 # Secure web dashboard (Flask)
 │   ├── app.py                 # Flask app factory
-│   ├── auth.py                # Login / session management
+│   ├── auth.py                # bcrypt login / session management
 │   ├── routes/
-│   │   ├── main.py            # Dashboard UI routes
-│   │   └── api.py             # REST API routes (for Android client)
-│   └── templates/             # Jinja2 HTML templates
+│   │   ├── auth_routes.py     # /login, /logout
+│   │   ├── main.py            # UI pages (chat, overview, memory, scheduler)
+│   │   └── api.py             # REST API — /api/chat, /api/bets, /api/bankroll…
+│   └── templates/
+│       ├── base.html          # Master layout with sidebar nav
+│       ├── chat.html          # ★ Live chat UI (works on Android browser)
+│       ├── index.html         # System overview
+│       ├── memory.html        # Memory browser
+│       ├── scheduler.html     # Scheduled jobs
+│       └── plugins.html       # Plugin health
 │
 ├── data/
-│   ├── memory/                # SQLite memory database lives here
-│   └── logs/                  # Rotating log files
+│   ├── memory/                # SQLite database (auto-created)
+│   └── logs/                  # Rotating log files (auto-created)
 │
 └── tests/                     # Unit tests
     └── test_core.py

@@ -2,26 +2,31 @@
 dashboard/routes/api.py — REST API Routes
 ==========================================
 JSON API consumed by:
-- The Android client (future)
+- The dashboard chat UI (via fetch)
+- Android client (future)
 - Plugin-to-plugin calls via HTTP
-- Any automation tools (curl, Shortcuts, Tasker, etc.)
+- Automation tools (curl, Tasker, Shortcuts, etc.)
 
-All routes require a valid session (login_required) unless explicitly
-exempted.  For API key auth (for Android client without a browser session),
-the ``X-API-Key`` header check is stubbed and ready to extend.
+All routes require a valid session (login_required).
 
 Base URL: /api
 
 Routes
 ------
 GET  /api/status            — Full assistant status
+POST /api/chat              — Send a message to the betting assistant ★ NEW
+GET  /api/history           — Conversation history
+POST /api/history/clear     — Clear conversation history
 GET  /api/plugins           — Plugin list and health
 GET  /api/memory            — List memory entries
 POST /api/memory            — Store a memory entry
 DELETE /api/memory/<key>    — Delete a memory entry
+GET  /api/bankroll          — Current bankroll state
+POST /api/bankroll          — Update bankroll
+GET  /api/bets              — List all tracked bets
+POST /api/bets              — Track a new bet
 GET  /api/scheduler/jobs    — List scheduled jobs
-POST /api/command           — Execute a registered command
-GET  /api/history           — Conversation history
+POST /api/command           — Execute any registered command
 """
 
 from __future__ import annotations
@@ -60,6 +65,81 @@ def status():
     return _ok(assistant.status())
 
 
+# ── Chat (conversation loop) ───────────────────────────────────────────────────
+
+@api_bp.route("/chat", methods=["POST"])
+@login_required
+def chat():
+    """
+    Send a message to the betting assistant and get a reply.
+
+    Request body (JSON)
+    -------------------
+    {
+        "message": "Is Lakers -4.5 good value tonight?",
+        "context": {}    (optional extra context for the AI)
+    }
+
+    Response
+    --------
+    {
+        "ok": true,
+        "data": {
+            "reply": "...",
+            "ts": "2025-01-01T12:00:00+00:00"
+        }
+    }
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+
+    body = request.get_json(silent=True) or {}
+    message = body.get("message", "").strip()
+
+    if not message:
+        return _err("'message' is required")
+
+    # Route through the betting_assistant plugin's chat command
+    result = assistant.execute_command("chat", message=message)
+
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 400)
+
+    return _ok(result)
+
+
+# ── Conversation history ───────────────────────────────────────────────────────
+
+@api_bp.route("/history")
+@login_required
+def history():
+    """
+    Return conversation history.
+
+    Query params: limit (default 50), plugin (filter by plugin name).
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+
+    limit = int(request.args.get("limit", 50))
+    plugin = request.args.get("plugin")
+    entries = assistant.memory.get_history(limit=limit, plugin=plugin)
+    return _ok(entries)
+
+
+@api_bp.route("/history/clear", methods=["POST"])
+@login_required
+def clear_history():
+    """Delete all conversation history entries."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("clear_history")
+    return _ok(result)
+
+
 # ── Plugins ────────────────────────────────────────────────────────────────────
 
 @api_bp.route("/plugins")
@@ -72,7 +152,7 @@ def plugins():
     return _ok(assistant.plugins.status_report())
 
 
-# ── Memory ────────────────────────────────────────────────────────────────────
+# ── Memory ─────────────────────────────────────────────────────────────────────
 
 @api_bp.route("/memory", methods=["GET"])
 @login_required
@@ -80,10 +160,7 @@ def list_memory():
     """
     List memory entries.
 
-    Query parameters
-    ----------------
-    category : Filter by category label.
-    limit    : Maximum entries to return (default 50).
+    Query params: category (filter), limit (default 50).
     """
     assistant = _get_assistant()
     if not assistant:
@@ -101,13 +178,7 @@ def store_memory():
     """
     Store a memory entry.
 
-    Request body (JSON)
-    -------------------
-    {
-        "key":      "user_name",
-        "value":    "Alice",
-        "category": "preference"   (optional)
-    }
+    Body: { "key": "...", "value": ..., "category": "..." (optional) }
     """
     assistant = _get_assistant()
     if not assistant:
@@ -141,6 +212,95 @@ def delete_memory(key: str):
     return _ok({"deleted": key})
 
 
+# ── Bankroll ───────────────────────────────────────────────────────────────────
+
+@api_bp.route("/bankroll", methods=["GET"])
+@login_required
+def get_bankroll():
+    """Return current bankroll state."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("bankroll", action="view")
+    return _ok(result)
+
+
+@api_bp.route("/bankroll", methods=["POST"])
+@login_required
+def update_bankroll():
+    """
+    Update the bankroll.
+
+    Body: { "action": "set"|"add"|"subtract", "amount": 1000.00 }
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+
+    body = request.get_json(silent=True) or {}
+    action = body.get("action", "set")
+    amount = float(body.get("amount", 0))
+
+    result = assistant.execute_command("bankroll", action=action, amount=amount)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"])
+    return _ok(result)
+
+
+# ── Bet tracking ───────────────────────────────────────────────────────────────
+
+@api_bp.route("/bets", methods=["GET"])
+@login_required
+def get_bets():
+    """
+    Return tracked bets.
+
+    Query params: today=1 (only today's bets, default), all=1 (all bets).
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+
+    if request.args.get("all"):
+        bets = assistant.memory.list_memories(category="bet", limit=500)
+        return _ok([b["value"] for b in bets])
+
+    result = assistant.execute_command("bets_today")
+    return _ok(result)
+
+
+@api_bp.route("/bets", methods=["POST"])
+@login_required
+def track_bet():
+    """
+    Track a new bet.
+
+    Body:
+    {
+        "sport":    "NBA",
+        "game":     "Lakers vs Warriors",
+        "bet_type": "spread",
+        "line":     "-4.5",
+        "odds":     "-110",
+        "stake":    50.00,
+        "result":   "pending",
+        "notes":    "Optional notes"
+    }
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+
+    body = request.get_json(silent=True) or {}
+    if not body.get("game"):
+        return _err("'game' is required")
+
+    result = assistant.execute_command("track_bet", **body)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"])
+    return _ok(result)
+
+
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
 @api_bp.route("/scheduler/jobs")
@@ -153,25 +313,15 @@ def scheduler_jobs():
     return _ok(assistant.scheduler.list_jobs())
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# ── Generic command dispatch ───────────────────────────────────────────────────
 
 @api_bp.route("/command", methods=["POST"])
 @login_required
 def execute_command():
     """
-    Execute a registered plugin command.
+    Execute any registered plugin command by name.
 
-    Request body (JSON)
-    -------------------
-    {
-        "command": "ping",
-        "args":    {}          (optional extra arguments for the handler)
-    }
-
-    Response
-    --------
-    The handler's return value wrapped in the standard {"ok": true, "data": ...}
-    envelope.
+    Body: { "command": "ping", "args": {} }
     """
     assistant = _get_assistant()
     if not assistant:
@@ -186,31 +336,7 @@ def execute_command():
 
     result = assistant.execute_command(command, **args)
 
-    # execute_command returns an error dict on failure
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
 
     return _ok(result if isinstance(result, (dict, list)) else {"response": result})
-
-
-# ── Conversation history ───────────────────────────────────────────────────────
-
-@api_bp.route("/history")
-@login_required
-def history():
-    """
-    Return conversation history.
-
-    Query parameters
-    ----------------
-    limit  : Maximum entries (default 20).
-    plugin : Filter by plugin name.
-    """
-    assistant = _get_assistant()
-    if not assistant:
-        return _err("Assistant not initialised", 503)
-
-    limit = int(request.args.get("limit", 20))
-    plugin = request.args.get("plugin")
-    entries = assistant.memory.get_history(limit=limit, plugin=plugin)
-    return _ok(entries)

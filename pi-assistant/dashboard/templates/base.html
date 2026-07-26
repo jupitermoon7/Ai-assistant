@@ -213,8 +213,11 @@
       <small>Personal AI Platform</small>
     </div>
     <div class="sidebar-nav">
-      <a href="{{ url_for('main.index') }}"     class="{{ 'active' if request.endpoint == 'main.index' }}">
-        ◉ Dashboard
+      <a href="{{ url_for('main.chat') }}"      class="{{ 'active' if request.endpoint == 'main.chat' }}">
+        💬 Chat
+      </a>
+      <a href="{{ url_for('main.overview') }}"  class="{{ 'active' if request.endpoint == 'main.overview' }}">
+        ◉ Overview
       </a>
       <a href="{{ url_for('main.plugins') }}"   class="{{ 'active' if request.endpoint == 'main.plugins' }}">
         ⬡ Plugins
