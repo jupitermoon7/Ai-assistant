@@ -50,6 +50,9 @@ log = get_logger(__name__)
 class AIClientError(Exception):
     """Raised when the AI API returns a non-retryable error."""
 
+class _RateLimitError(Exception):
+    """Internal — raised on HTTP 429 so tenacity can retry with backoff."""
+
 
 class AIClient:
     """
@@ -196,9 +199,9 @@ class AIClient:
         return self._do_post(path, payload)
 
     @retry(
-        retry=retry_if_exception_type((httpx.TransportError, httpx.TimeoutException)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((httpx.TransportError, httpx.TimeoutException, _RateLimitError)),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
         reraise=True,
     )
     def _do_post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -206,9 +209,19 @@ class AIClient:
         try:
             response = self._client.post(path, json=payload)
             if response.status_code == 401:
-                raise AIClientError("API key is invalid or missing (HTTP 401)")
+                raise AIClientError(
+                    "API key is invalid or missing (HTTP 401). "
+                    "Check that OPENAI_API_KEY is set correctly in your .env file."
+                )
             if response.status_code == 429:
-                raise AIClientError("Rate limited by the API provider (HTTP 429)")
+                # Retry-able — raise _RateLimitError so tenacity catches it
+                log.warning("Rate limited by AI provider — retrying with backoff…")
+                raise _RateLimitError(
+                    "Rate limited by the AI provider (HTTP 429). "
+                    "If this keeps happening, check your OpenAI billing at "
+                    "platform.openai.com/settings/billing — free tier keys have "
+                    "very low request limits."
+                )
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
