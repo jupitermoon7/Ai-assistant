@@ -36,7 +36,7 @@ python-dateutil==2.9.0     # Date/time parsing utilities
 # Web scraping & live data
 beautifulsoup4==4.12.3
 lxml==5.2.2
-duckduckgo-search==8.1.1   # Free live web search for the AI agent
+ddgs                       # Free live web search for the AI agent (replaces duckduckgo-search)
 
 # Testing
 pytest==8.3.2

@@ -198,6 +198,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_scores",
+            "description": (
+                "Get live scores, final results, box scores, and standings for games today or recently completed. "
+                "Use this for: checking if a game is in progress, finding the final score, "
+                "looking up home runs hit today, checking which games are left today, or any "
+                "question about actual game outcomes and stats."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport code: nfl, nba, mlb, nhl, soccer",
+                        "enum": ["nfl", "nba", "mlb", "nhl", "soccer"],
+                    }
+                },
+                "required": ["sport"],
+            },
+        },
+    },
 ]
 
 
@@ -236,7 +259,7 @@ def search_web(query: str) -> str:
     # ── Try duckduckgo-search library if installed ─────────────────────────
     if not results:
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
                 for hit in ddgs.text(query, max_results=6):
                     title = hit.get("title", "")
@@ -631,7 +654,7 @@ def get_expert_picks(sport: str) -> str:
     # ── Fallback: DuckDuckGo search for expert picks ───────────────────────
     if not results:
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             query = f"{sport.upper()} expert picks today site:covers.com OR site:actionnetwork.com OR site:oddstrader.com"
             with DDGS() as ddgs:
                 for hit in ddgs.text(query, max_results=5):
@@ -674,7 +697,7 @@ def get_bot_predictions(query: str) -> str:
     ]
 
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         # Search across multiple prediction sites at once
         site_query = f"{query} prediction picks " + " OR ".join(prediction_sites)
         with DDGS() as ddgs:
@@ -716,7 +739,7 @@ def get_bot_predictions(query: str) -> str:
     # ── Broad fallback: general AI picks search ────────────────────────────
     if not results:
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
                 for hit in ddgs.text(f"{query} AI prediction bot picks today", max_results=6):
                     title = hit.get("title", "")
@@ -739,16 +762,94 @@ def get_bot_predictions(query: str) -> str:
     return header + "\n\n" + "\n\n".join(results[:10])
 
 
+def get_scores(sport: str) -> str:
+    """
+    Pull live scores, final results, and box score highlights from ESPN.
+    Works for games in progress AND recently completed games.
+    """
+    log.info(f"[agent_tools] get_scores: {sport}")
+
+    sport_map = {
+        "nfl":    ("football",   "nfl"),
+        "nba":    ("basketball", "nba"),
+        "mlb":    ("baseball",   "mlb"),
+        "nhl":    ("hockey",     "nhl"),
+        "soccer": ("soccer",     "eng.1"),
+    }
+    sport_path, league = sport_map.get(sport, ("baseball", "mlb"))
+
+    try:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/{league}/scoreboard"
+        r = httpx.get(url, headers=_HEADERS, timeout=12, follow_redirects=True)
+        if r.status_code != 200:
+            return f"ESPN scoreboard returned HTTP {r.status_code} for {sport.upper()}."
+
+        data   = r.json()
+        events = data.get("events", [])
+        if not events:
+            return f"No {sport.upper()} games found on the scoreboard today."
+
+        lines = [f"{sport.upper()} Scoreboard ({datetime.now(timezone.utc).strftime('%H:%M UTC')}):"]
+
+        for event in events:
+            name        = event.get("name", "Unknown game")
+            status_obj  = event.get("status", {})
+            status_type = status_obj.get("type", {})
+            state       = status_type.get("state", "")        # pre / in / post
+            status_desc = status_type.get("shortDetail", "")  # "Final", "7th Inning", etc.
+
+            competitions = event.get("competitions", [{}])
+            comp         = competitions[0] if competitions else {}
+            competitors  = comp.get("competitors", [])
+
+            score_line = name
+            if len(competitors) >= 2:
+                home = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+                away = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+                home_name  = home.get("team", {}).get("shortDisplayName", "Home")
+                away_name  = away.get("team", {}).get("shortDisplayName", "Away")
+                home_score = home.get("score", "-")
+                away_score = away.get("score", "-")
+                winner_tag = ""
+                if state == "post":
+                    if home.get("winner"):
+                        winner_tag = f" ← WIN"
+                    elif away.get("winner"):
+                        winner_tag = ""
+                score_line = f"{away_name} {away_score}  @  {home_name} {home_score}{winner_tag}"
+
+            # Box score highlights (HR, leaders, etc.) for baseball
+            leaders: list[str] = []
+            for cl in comp.get("competitionLeaders", []):
+                cat   = cl.get("name", "")
+                for leader_group in cl.get("leaders", []):
+                    for leader in leader_group.get("leaders", [])[:2]:
+                        athlete = leader.get("athlete", {}).get("displayName", "")
+                        value   = leader.get("displayValue", "")
+                        if athlete and value:
+                            leaders.append(f"    {cat}: {athlete} — {value}")
+
+            lines.append(f"\n{score_line}  [{status_desc}]")
+            lines.extend(leaders[:4])
+
+        return "\n".join(lines)
+
+    except Exception as exc:
+        log.warning(f"[agent_tools] get_scores error: {exc}")
+        return f"Could not fetch {sport.upper()} scores: {exc}"
+
+
 # ── Tool dispatcher ────────────────────────────────────────────────────────────
 
 TOOL_FUNCTIONS: dict[str, Any] = {
-    "search_web":         search_web,
-    "get_live_odds":      get_live_odds,
-    "get_injury_news":    get_injury_news,
-    "get_sports_news":    get_sports_news,
-    "get_reddit_picks":   get_reddit_picks,
-    "get_expert_picks":   get_expert_picks,
+    "search_web":          search_web,
+    "get_live_odds":       get_live_odds,
+    "get_injury_news":     get_injury_news,
+    "get_sports_news":     get_sports_news,
+    "get_reddit_picks":    get_reddit_picks,
+    "get_expert_picks":    get_expert_picks,
     "get_bot_predictions": get_bot_predictions,
+    "get_scores":          get_scores,
 }
 
 

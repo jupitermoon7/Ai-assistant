@@ -40,7 +40,7 @@ ai:
   # Base URL — change to http://localhost:11434/v1 for Ollama on the Pi
   base_url: "https://api.openai.com/v1"
   # API key comes from .env: OPENAI_API_KEY
-  default_model: "gpt-4o-mini"
+  default_model: "gpt-4o"
   # Request timeout in seconds
   timeout: 30
   # Max retries on transient failures
