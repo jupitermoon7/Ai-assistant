@@ -6,10 +6,13 @@ The AI decides which ones to use and when — no schedule, no stale cache.
 
 Tools available
 ---------------
-  search_web        — DuckDuckGo web search (free, no API key required)
-  get_live_odds     — Live betting lines from Action Network
-  get_injury_news   — Injury / lineup updates from ESPN + RotoWire
-  get_sports_news   — Latest headlines from ESPN
+  search_web            — DuckDuckGo web search (free, no API key required)
+  get_live_odds         — Live betting lines from Action Network
+  get_injury_news       — Injury / lineup updates from ESPN + RotoWire
+  get_sports_news       — Latest headlines from ESPN
+  get_reddit_picks      — Community picks & bot posts from Reddit betting subs
+  get_expert_picks      — Expert picks from Covers.com + Action Network experts
+  get_bot_predictions   — AI/bot prediction aggregation from prediction sites
 
 Each tool function takes plain Python args and returns a plain string.
 The agent loop in conversation.py handles dispatching and result injection.
@@ -125,6 +128,73 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     }
                 },
                 "required": ["sport"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_reddit_picks",
+            "description": (
+                "Scrape Reddit betting communities for today's top picks, hot takes, "
+                "and bot-generated analysis. Hits r/sportsbook, r/sportsbetting, and "
+                "sport-specific subs. Use this to see what the community and bots are "
+                "backing — great for gauging public sentiment and finding contrarian angles."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport to focus on: nfl, nba, mlb, nhl, soccer, or 'all' for everything",
+                        "enum": ["nfl", "nba", "mlb", "nhl", "soccer", "all"],
+                    }
+                },
+                "required": ["sport"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_expert_picks",
+            "description": (
+                "Fetch expert picks and consensus data from Covers.com and Action Network. "
+                "These are picks from professional handicappers, not just public bettors. "
+                "Use this to see which side the experts are on and compare against public money."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport code: nfl, nba, mlb, nhl",
+                        "enum": ["nfl", "nba", "mlb", "nhl"],
+                    }
+                },
+                "required": ["sport"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_bot_predictions",
+            "description": (
+                "Search multiple AI and bot prediction sources for a specific game or sport. "
+                "Pulls from prediction aggregator sites and searches for AI model picks. "
+                "Use this when you want to know what prediction bots and AI systems are saying "
+                "about a game — compare their outputs against your own analysis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Game or topic to find predictions for. E.g. 'Lakers vs Warriors prediction' or 'NFL Week 5 AI picks'",
+                    }
+                },
+                "required": ["query"],
             },
         },
     },
@@ -377,13 +447,308 @@ def get_sports_news(sport: str) -> str:
         return f"Could not fetch {sport.upper()} news: {exc}"
 
 
+def get_reddit_picks(sport: str) -> str:
+    """
+    Pull today's top picks and bot posts from Reddit betting communities.
+    Targets high-signal posts: pick threads, bot analysis, and daily discussion.
+    """
+    log.info(f"[agent_tools] get_reddit_picks: {sport}")
+
+    sport_sub_map = {
+        "nfl":    ["sportsbook", "sportsbetting", "nfl", "NFLpickem"],
+        "nba":    ["sportsbook", "sportsbetting", "nba", "nbadraft"],
+        "mlb":    ["sportsbook", "sportsbetting", "baseball"],
+        "nhl":    ["sportsbook", "sportsbetting", "hockey"],
+        "soccer": ["sportsbook", "sportsbetting", "soccer", "MLS"],
+        "all":    ["sportsbook", "sportsbetting"],
+    }
+    subreddits = sport_sub_map.get(sport, ["sportsbook", "sportsbetting"])
+
+    # Keywords that signal picks/analysis posts (including bot-style posts)
+    pick_keywords = [
+        "pick", "bet", "play", "lock", "fade", "sharp", "value",
+        "prediction", "analysis", "best bet", "parlay", "line",
+        "model", "algorithm", "bot", "ai pick", "system",
+    ]
+
+    results: list[str] = []
+
+    for sub in subreddits:
+        try:
+            # Search for pick-related posts first
+            search_url = f"https://www.reddit.com/r/{sub}/search.json"
+            r = httpx.get(
+                search_url,
+                params={"q": f"{sport} picks bets today", "sort": "top", "t": "day", "limit": 10},
+                headers={**_HEADERS, "User-Agent": "PiAssistant/1.0 (sports betting research)"},
+                timeout=12,
+                follow_redirects=True,
+            )
+            if r.status_code == 200:
+                posts = r.json().get("data", {}).get("children", [])
+                for post in posts[:5]:
+                    p = post.get("data", {})
+                    title = p.get("title", "").strip()
+                    body  = (p.get("selftext") or "").strip()[:400]
+                    score = p.get("score", 0)
+                    author = p.get("author", "")
+                    flair  = p.get("link_flair_text") or ""
+
+                    # Prioritise bot posts and high-score pick posts
+                    title_lower = title.lower()
+                    if score < 5 and not any(kw in title_lower for kw in pick_keywords):
+                        continue
+
+                    author_tag = f"[BOT: {author}]" if "bot" in author.lower() else f"[u/{author}]"
+                    flair_tag  = f" [{flair}]" if flair else ""
+                    results.append(
+                        f"• {title}{flair_tag} — {author_tag} 👍{score}"
+                        + (f"\n  {body[:200]}" if body else "")
+                    )
+        except Exception as exc:
+            log.debug(f"[agent_tools] Reddit picks r/{sub} error: {exc}")
+
+        # Also grab hot posts from the sub directly
+        try:
+            hot_url = f"https://www.reddit.com/r/{sub}/hot.json?limit=15"
+            r = httpx.get(
+                hot_url,
+                headers={**_HEADERS, "User-Agent": "PiAssistant/1.0 (sports betting research)"},
+                timeout=12,
+                follow_redirects=True,
+            )
+            if r.status_code == 200:
+                posts = r.json().get("data", {}).get("children", [])
+                for post in posts[:8]:
+                    p = post.get("data", {})
+                    title = p.get("title", "").strip()
+                    score = p.get("score", 0)
+                    author = p.get("author", "")
+                    body   = (p.get("selftext") or "").strip()[:300]
+
+                    title_lower = title.lower()
+                    is_bot_post = "bot" in author.lower()
+                    is_pick_post = any(kw in title_lower for kw in pick_keywords)
+
+                    if score < 30 and not is_bot_post and not is_pick_post:
+                        continue
+
+                    author_tag = f"[BOT: {author}]" if is_bot_post else f"[u/{author}]"
+                    results.append(
+                        f"• {title} — {author_tag} 👍{score}"
+                        + (f"\n  {body[:200]}" if body else "")
+                    )
+        except Exception as exc:
+            log.debug(f"[agent_tools] Reddit hot r/{sub} error: {exc}")
+
+        if len(results) >= 15:
+            break
+
+    if not results:
+        return (
+            f"No strong Reddit picks found for {sport.upper()} right now. "
+            "Community may be quiet — try searching the web for picks instead."
+        )
+
+    header = (
+        f"Reddit Community Picks — {sport.upper()} "
+        f"({datetime.now(timezone.utc).strftime('%H:%M UTC')}):"
+    )
+    return header + "\n\n" + "\n\n".join(results[:12])
+
+
+def get_expert_picks(sport: str) -> str:
+    """
+    Scrape expert consensus picks from Covers.com and Action Network.
+    Returns professional handicapper picks, not just public money %.
+    """
+    log.info(f"[agent_tools] get_expert_picks: {sport}")
+    results: list[str] = []
+
+    # ── Action Network expert picks ────────────────────────────────────────
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        url = f"https://api.actionnetwork.com/web/v1/picks?sport={sport}&date={today}&type=expert"
+        r = httpx.get(url, headers=_HEADERS, timeout=12, follow_redirects=True)
+        if r.status_code == 200:
+            picks = r.json().get("picks", [])
+            for pick in picks[:10]:
+                expert = pick.get("user", {}).get("name", "Expert")
+                game   = pick.get("game", {})
+                away   = game.get("away_team", {}).get("full_name", "Away")
+                home   = game.get("home_team", {}).get("full_name", "Home")
+                bet    = pick.get("pick_text", "")
+                analysis = (pick.get("analysis") or "")[:250]
+                results.append(
+                    f"• {expert} on {away} @ {home}: **{bet}**"
+                    + (f"\n  {analysis}" if analysis else "")
+                )
+    except Exception as exc:
+        log.debug(f"[agent_tools] Action Network expert picks error: {exc}")
+
+    # ── Covers.com consensus scrape ────────────────────────────────────────
+    covers_sport_map = {
+        "nfl": "https://www.covers.com/picks/nfl",
+        "nba": "https://www.covers.com/picks/nba",
+        "mlb": "https://www.covers.com/picks/mlb",
+        "nhl": "https://www.covers.com/picks/nhl",
+    }
+    covers_url = covers_sport_map.get(sport, "")
+    if covers_url:
+        try:
+            from bs4 import BeautifulSoup
+            r = httpx.get(covers_url, headers=_HEADERS, timeout=14, follow_redirects=True)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "lxml")
+
+                # Covers pick cards
+                pick_cards = (
+                    soup.select(".cmg_picks_content")
+                    or soup.select("[class*='pick-card']")
+                    or soup.select("[class*='consensus']")
+                    or soup.select("article")
+                )
+                for card in pick_cards[:8]:
+                    title_el = (
+                        card.select_one("h3") or card.select_one("h4")
+                        or card.select_one("[class*='title']")
+                    )
+                    body_el = (
+                        card.select_one("p") or card.select_one("[class*='desc']")
+                    )
+                    title = title_el.get_text(strip=True) if title_el else ""
+                    body  = body_el.get_text(strip=True)[:250] if body_el else ""
+                    if title and len(title) > 5:
+                        results.append(
+                            f"• [Covers] {title}"
+                            + (f": {body}" if body else "")
+                        )
+        except ImportError:
+            pass
+        except Exception as exc:
+            log.debug(f"[agent_tools] Covers.com picks error: {exc}")
+
+    # ── Fallback: DuckDuckGo search for expert picks ───────────────────────
+    if not results:
+        try:
+            from duckduckgo_search import DDGS
+            query = f"{sport.upper()} expert picks today site:covers.com OR site:actionnetwork.com OR site:oddstrader.com"
+            with DDGS() as ddgs:
+                for hit in ddgs.text(query, max_results=5):
+                    title = hit.get("title", "")
+                    body  = hit.get("body", "")[:250]
+                    href  = hit.get("href", "")
+                    results.append(f"• {title}: {body} [{href}]")
+        except Exception as exc:
+            log.debug(f"[agent_tools] expert picks DDG fallback error: {exc}")
+
+    if not results:
+        return (
+            f"No expert picks found for {sport.upper()} right now. "
+            "Try get_bot_predictions or search_web with a specific game."
+        )
+
+    header = (
+        f"Expert Picks — {sport.upper()} "
+        f"({datetime.now(timezone.utc).strftime('%H:%M UTC')}):"
+    )
+    return header + "\n\n" + "\n\n".join(results[:12])
+
+
+def get_bot_predictions(query: str) -> str:
+    """
+    Search multiple AI/bot prediction sources for a specific game or topic.
+    Aggregates picks from prediction sites, AI models, and handicapping bots.
+    Sources: Oddstrader, Dimers, PredictIt-style aggregators, AI pick sites.
+    """
+    log.info(f"[agent_tools] get_bot_predictions: {query!r}")
+    results: list[str] = []
+
+    # ── Targeted search across known AI/bot prediction sites ──────────────
+    prediction_sites = [
+        "site:dimers.com",
+        "site:oddstrader.com",
+        "site:pikdawgz.com",
+        "site:wunderdog.com",
+        "site:sportsprediction.com",
+    ]
+
+    try:
+        from duckduckgo_search import DDGS
+        # Search across multiple prediction sites at once
+        site_query = f"{query} prediction picks " + " OR ".join(prediction_sites)
+        with DDGS() as ddgs:
+            for hit in ddgs.text(site_query, max_results=8):
+                title = hit.get("title", "")
+                body  = hit.get("body", "")[:350]
+                href  = hit.get("href", "")
+                source = href.split("/")[2] if "/" in href else href
+                results.append(f"• [{source}] {title}: {body}")
+    except ImportError:
+        log.debug("[agent_tools] duckduckgo-search not available for bot_predictions")
+    except Exception as exc:
+        log.debug(f"[agent_tools] bot_predictions DDG search error: {exc}")
+
+    # ── Dimers.com (AI-powered predictions, free) ──────────────────────────
+    if not results:
+        try:
+            from bs4 import BeautifulSoup
+            sport_guess = ""
+            q_lower = query.lower()
+            for s in ["nfl", "nba", "mlb", "nhl", "soccer", "ncaab", "ncaaf"]:
+                if s in q_lower:
+                    sport_guess = s
+                    break
+
+            if sport_guess:
+                url = f"https://www.dimers.com/bet-hub/{sport_guess}/schedule"
+                r = httpx.get(url, headers=_HEADERS, timeout=14, follow_redirects=True)
+                if r.status_code == 200:
+                    soup = BeautifulSoup(r.text, "lxml")
+                    cards = soup.select("[class*='game-card']") or soup.select("[class*='matchup']")
+                    for card in cards[:8]:
+                        text = card.get_text(separator=" ", strip=True)[:300]
+                        if text:
+                            results.append(f"• [Dimers AI] {text}")
+        except Exception as exc:
+            log.debug(f"[agent_tools] Dimers scrape error: {exc}")
+
+    # ── Broad fallback: general AI picks search ────────────────────────────
+    if not results:
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS() as ddgs:
+                for hit in ddgs.text(f"{query} AI prediction bot picks today", max_results=6):
+                    title = hit.get("title", "")
+                    body  = hit.get("body", "")[:300]
+                    href  = hit.get("href", "")
+                    results.append(f"• {title}: {body} [{href}]")
+        except Exception as exc:
+            log.debug(f"[agent_tools] bot_predictions broad fallback error: {exc}")
+
+    if not results:
+        return (
+            f"No bot/AI predictions found for '{query}'. "
+            "Try search_web with a more specific team name or matchup."
+        )
+
+    header = (
+        f"AI & Bot Predictions for '{query}' "
+        f"({datetime.now(timezone.utc).strftime('%H:%M UTC')}):"
+    )
+    return header + "\n\n" + "\n\n".join(results[:10])
+
+
 # ── Tool dispatcher ────────────────────────────────────────────────────────────
 
 TOOL_FUNCTIONS: dict[str, Any] = {
-    "search_web":      search_web,
-    "get_live_odds":   get_live_odds,
-    "get_injury_news": get_injury_news,
-    "get_sports_news": get_sports_news,
+    "search_web":         search_web,
+    "get_live_odds":      get_live_odds,
+    "get_injury_news":    get_injury_news,
+    "get_sports_news":    get_sports_news,
+    "get_reddit_picks":   get_reddit_picks,
+    "get_expert_picks":   get_expert_picks,
+    "get_bot_predictions": get_bot_predictions,
 }
 
 
