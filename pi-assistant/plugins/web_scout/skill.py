@@ -168,17 +168,22 @@ class WebScoutPlugin(BasePlugin):
                 "web_scout.last_sources", "\n".join(source_summary)
             )
 
-        # ── Email ─────────────────────────────────────────────────────────────
+        # ── Notify (Discord first, fall back to email) ─────────────────────────
         if send_email:
             try:
-                from core.emailer import send_report
-                send_report(
+                from core.emailer import send_discord_report, send_report
+                notified = send_discord_report(
                     subject=f"Pi Assistant Scout Report — {now}",
                     body=report,
-                    config=self.assistant.config if self.assistant else None,
                 )
+                if not notified:
+                    send_report(
+                        subject=f"Pi Assistant Scout Report — {now}",
+                        body=report,
+                        config=self.assistant.config if self.assistant else None,
+                    )
             except Exception as exc:
-                log.warning(f"[web_scout] Email send failed: {exc}")
+                log.warning(f"[web_scout] Notification failed: {exc}")
 
         return report
 

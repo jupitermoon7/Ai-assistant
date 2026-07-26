@@ -31,6 +31,56 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# ── Discord ────────────────────────────────────────────────────────────────────
+
+_DISCORD_CHUNK = 3900   # Discord embed description limit is 4096; stay safe
+_DISCORD_COLOR = 0x6C63FF  # purple
+
+
+def send_discord_report(subject: str, body: str) -> bool:
+    """
+    Post a report to a Discord channel via webhook.
+
+    Requires env var: DISCORD_WEBHOOK_URL
+    Automatically splits long reports into multiple messages.
+    Returns True on success.
+    """
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        log.warning(
+            "Discord not configured — set DISCORD_WEBHOOK_URL in your .env file."
+        )
+        return False
+
+    import httpx as _httpx
+
+    # Split body into chunks that fit within Discord's embed limit
+    chunks = [body[i:i + _DISCORD_CHUNK] for i in range(0, len(body), _DISCORD_CHUNK)]
+    total  = len(chunks)
+
+    try:
+        for idx, chunk in enumerate(chunks, 1):
+            title = subject if total == 1 else f"{subject} ({idx}/{total})"
+            payload = {
+                "embeds": [{
+                    "title":       title,
+                    "description": chunk,
+                    "color":       _DISCORD_COLOR,
+                    "footer":      {"text": "Pi Assistant · Sports Betting Scout"},
+                }]
+            }
+            r = _httpx.post(webhook_url, json=payload, timeout=10)
+            if r.status_code not in (200, 204):
+                log.error(f"Discord webhook returned {r.status_code}: {r.text[:200]}")
+                return False
+        log.info(f"Discord report sent ({total} message(s)): {subject!r}")
+        return True
+    except Exception as exc:
+        log.error(f"Failed to send Discord report: {exc}")
+        return False
+
+
+# ── Email ──────────────────────────────────────────────────────────────────────
 
 def _is_configured() -> bool:
     """Return True if the minimum email env vars are set."""
