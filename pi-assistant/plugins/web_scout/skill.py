@@ -70,8 +70,8 @@ class WebScoutPlugin(BasePlugin):
     def setup(self) -> None:
         interval_hours = self.config.get("scout_interval_hours", 6)
         self.assistant.scheduler.add_interval_job(
-            "web_scout.scheduled_scout",
             self._scheduled_scout,
+            "web_scout.scheduled_scout",
             hours=interval_hours,
         )
         log.info(
