@@ -407,4 +407,15 @@ class BettingAssistant(BasePlugin):
                     f"{v.get('game','')} | {v.get('bet_type','')} {v.get('line','')} "
                     f"@ {v.get('odds','')} | ${v.get('stake',0):.2f}"
                 )
+
+        # Inject the latest web scout report so the AI has live betting intel
+        scout_report = self.assistant.memory.recall("web_scout.last_report")
+        scout_run_at = self.assistant.memory.recall("web_scout.last_run")
+        if scout_report:
+            # Trim to ~2000 chars to avoid blowing the context window on every message
+            trimmed = scout_report[:2000] + ("…" if len(scout_report) > 2000 else "")
+            context["latest_scout_report"] = (
+                f"(Scouted {scout_run_at or 'recently'}) {trimmed}"
+            )
+
         return context
