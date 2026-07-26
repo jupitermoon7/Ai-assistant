@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+<!--
+  dashboard/templates/plugins.html — Plugin health panel
+-->
+{% block title %}Plugins{% endblock %}
+{% block page_title %}Plugins{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Loaded Plugins</div>
+  {% if plugins %}
+    <table>
+      <thead>
+        <tr><th>Plugin</th><th>Status</th><th>Version</th><th>Error</th></tr>
+      </thead>
+      <tbody>
+        {% for p in plugins %}
+        <tr>
+          <td><code>{{ p.plugin }}</code></td>
+          <td>
+            {% if p.status == 'ok' %}<span class="badge badge-ok">OK</span>
+            {% elif p.status == 'error' %}<span class="badge badge-error">Error</span>
+            {% else %}<span class="badge badge-warn">{{ p.status }}</span>{% endif %}
+          </td>
+          <td style="color:var(--text-dim);font-size:12px">{{ p.version or '—' }}</td>
+          <td style="color:var(--err);font-size:12px">{{ p.error or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:var(--text-dim);font-size:13px">No plugins loaded.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">How to Add a Plugin</div>
+  <p style="font-size:13px;color:var(--text-dim);line-height:1.7">
+    Create a new folder under <code>plugins/</code> with a <code>skill.py</code> file.
+    Copy <code>plugins/example_skill/skill.py</code> as your starting point.
+    Restart the assistant — it is discovered automatically.
+  </p>
+  <pre style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:16px;font-size:12px;margin-top:12px">
+plugins/
+└── my_new_skill/
+    ├── __init__.py   ← empty file
+    └── skill.py      ← subclass BasePlugin here
+  </pre>
+</div>
+{% endblock %}

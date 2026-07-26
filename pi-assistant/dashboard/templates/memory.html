@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+<!--
+  dashboard/templates/memory.html — Long-term memory browser
+-->
+{% block title %}Memory{% endblock %}
+{% block page_title %}Long-Term Memory{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Stored Facts</div>
+  {% if memories %}
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Value</th><th>Category</th><th>Updated</th></tr>
+      </thead>
+      <tbody>
+        {% for m in memories %}
+        <tr>
+          <td><code>{{ m.key }}</code></td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ m.value | string | truncate(80) }}
+          </td>
+          <td>
+            {% if m.category %}
+              <span class="badge badge-neutral">{{ m.category }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--text-dim)">{{ m.updated or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:var(--text-dim);font-size:13px">
+      No memory entries yet. Use the API or a plugin to store facts.
+    </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Store a New Fact</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">KEY</label>
+      <input id="mem-key" type="text" placeholder="e.g. user_name"
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 12px;font-size:14px;width:180px"/>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">VALUE</label>
+      <input id="mem-value" type="text" placeholder="e.g. Alice"
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 12px;font-size:14px;width:200px"/>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">CATEGORY (opt)</label>
+      <input id="mem-cat" type="text" placeholder="preference"
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 12px;font-size:14px;width:140px"/>
+    </div>
+    <button onclick="storeMem()" class="btn btn-primary">Save</button>
+  </div>
+  <div id="mem-result" style="margin-top:12px;font-size:13px;color:var(--text-dim)"></div>
+</div>
+
+<script>
+async function storeMem() {
+  const key   = document.getElementById('mem-key').value.trim();
+  const value = document.getElementById('mem-value').value.trim();
+  const cat   = document.getElementById('mem-cat').value.trim();
+  const out   = document.getElementById('mem-result');
+
+  if (!key || !value) { out.textContent = 'Key and value are required.'; return; }
+
+  const res = await fetch('/api/memory', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
+    body: JSON.stringify({ key, value, category: cat || null })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    out.textContent = '✓ Saved. Refresh the page to see the update.';
+    out.style.color = 'var(--ok)';
+  } else {
+    out.textContent = '✗ ' + data.error;
+    out.style.color = 'var(--err)';
+  }
+}
+</script>
+{% endblock %}

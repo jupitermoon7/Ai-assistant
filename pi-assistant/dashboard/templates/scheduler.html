@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+<!--
+  dashboard/templates/scheduler.html — Scheduled jobs viewer
+-->
+{% block title %}Scheduler{% endblock %}
+{% block page_title %}Task Scheduler{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Scheduled Jobs</div>
+  {% if jobs %}
+    <table>
+      <thead>
+        <tr><th>Job ID</th><th>Next Run (UTC)</th><th>Trigger</th></tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td><code>{{ job.id }}</code></td>
+          <td style="color:var(--text-dim);font-size:12px">{{ job.next_run or 'Pending…' }}</td>
+          <td style="color:var(--text-dim);font-size:12px">{{ job.trigger }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:var(--text-dim);font-size:13px">
+      No jobs currently scheduled. Jobs are registered by plugins in their <code>setup()</code> method.
+    </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">How to Add a Scheduled Job</div>
+  <p style="font-size:13px;color:var(--text-dim);line-height:1.7">
+    Schedule jobs from within a plugin's <code>setup()</code> method using the assistant's scheduler:
+  </p>
+  <pre style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:16px;font-size:12px;margin-top:12px;overflow-x:auto">
+# Every 30 minutes
+self.assistant.scheduler.add_interval_job(
+    func=self.my_task, job_id="my_plugin.my_task", minutes=30
+)
+
+# Every weekday at 08:00
+self.assistant.scheduler.add_cron_job(
+    func=self.morning_brief, job_id="my_plugin.brief",
+    day_of_week="mon-fri", hour=8, minute=0
+)
+  </pre>
+</div>
+{% endblock %}

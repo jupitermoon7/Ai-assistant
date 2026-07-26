@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# pi-assistant.service — systemd Unit File (reference copy)
+#
+# This is a REFERENCE COPY for documentation purposes.
+# The install-service.sh script writes the real unit file with the correct
+# absolute paths to /etc/systemd/system/pi-assistant.service.
+#
+# Do not copy this file manually — run:
+#   sudo ./install-service.sh
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Pi Assistant — Personal AI Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/pi-assistant
+ExecStart=/home/pi/pi-assistant/venv/bin/python /home/pi/pi-assistant/main.py
+EnvironmentFile=/home/pi/pi-assistant/.env
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-assistant
+
+[Install]
+WantedBy=multi-user.target

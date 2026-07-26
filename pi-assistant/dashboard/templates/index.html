@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+<!--
+  dashboard/templates/index.html — Main overview page
+  =====================================================
+  Shows:
+  - Quick stats (plugins loaded, commands registered, scheduler state)
+  - Plugin health cards
+  - Scheduled jobs
+  - Command executor (test commands from the browser)
+-->
+{% block title %}Overview{% endblock %}
+{% block page_title %}Overview{% endblock %}
+
+{% block content %}
+
+<!-- ── Stat row ──────────────────────────────────────────────────── -->
+<div class="stat-grid" style="margin-bottom:24px">
+  <div class="stat-box">
+    <div class="stat-value">{{ status.plugins | length }}</div>
+    <div class="stat-label">Plugins loaded</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-value">{{ status.commands | length }}</div>
+    <div class="stat-label">Commands</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-value">{{ status.scheduler.jobs | length }}</div>
+    <div class="stat-label">Scheduled jobs</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-value">
+      {% if status.scheduler.running %}
+        <span class="badge badge-ok">Running</span>
+      {% else %}
+        <span class="badge badge-error">Stopped</span>
+      {% endif %}
+    </div>
+    <div class="stat-label">Scheduler</div>
+  </div>
+</div>
+
+<!-- ── Plugin health ─────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Plugin Health</div>
+  {% if status.plugins %}
+    <table>
+      <thead>
+        <tr><th>Plugin</th><th>Status</th><th>Info</th></tr>
+      </thead>
+      <tbody>
+        {% for p in status.plugins %}
+        <tr>
+          <td><code>{{ p.plugin }}</code></td>
+          <td>
+            {% if p.status == 'ok' %}
+              <span class="badge badge-ok">OK</span>
+            {% elif p.status == 'error' %}
+              <span class="badge badge-error">Error</span>
+            {% else %}
+              <span class="badge badge-warn">{{ p.status }}</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--text-dim);font-size:12px">
+            {% if p.error %}<span style="color:var(--err)">{{ p.error }}</span>
+            {% elif p.version %}v{{ p.version }}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:var(--text-dim);font-size:13px">No plugins loaded.</p>
+  {% endif %}
+</div>
+
+<!-- ── Scheduler ─────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Upcoming Jobs</div>
+  {% if status.scheduler.jobs %}
+    <table>
+      <thead><tr><th>Job ID</th><th>Next Run</th><th>Trigger</th></tr></thead>
+      <tbody>
+        {% for job in status.scheduler.jobs %}
+        <tr>
+          <td><code>{{ job.id }}</code></td>
+          <td style="color:var(--text-dim);font-size:12px">{{ job.next_run or '—' }}</td>
+          <td style="color:var(--text-dim);font-size:12px">{{ job.trigger }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:var(--text-dim);font-size:13px">No jobs scheduled.</p>
+  {% endif %}
+</div>
+
+<!-- ── Command tester ─────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">Command Executor</div>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+    Run any registered command directly from the browser.
+    Available: <code>{{ status.commands | join(', ') or 'none' }}</code>
+  </p>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">COMMAND</label>
+      <input
+        id="cmd-input"
+        type="text"
+        placeholder="e.g. ping"
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 12px;font-size:14px;width:200px"
+      />
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">ARGS (JSON)</label>
+      <input
+        id="cmd-args"
+        type="text"
+        placeholder='{"name": "Alice"}'
+        style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 12px;font-size:14px;width:220px"
+      />
+    </div>
+    <button onclick="runCommand()" class="btn btn-primary">▶ Run</button>
+  </div>
+  <pre id="cmd-result" style="margin-top:16px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px;min-height:60px;font-size:12px;white-space:pre-wrap;color:var(--text-dim)">Result will appear here…</pre>
+</div>
+
+<script>
+async function runCommand() {
+  const command = document.getElementById('cmd-input').value.trim();
+  const argsRaw = document.getElementById('cmd-args').value.trim();
+  const out = document.getElementById('cmd-result');
+
+  if (!command) { out.textContent = 'Enter a command name.'; return; }
+
+  let args = {};
+  if (argsRaw) {
+    try { args = JSON.parse(argsRaw); }
+    catch { out.textContent = 'Invalid JSON in args field.'; return; }
+  }
+
+  out.textContent = 'Running…';
+  try {
+    const res = await fetch('/api/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      },
+      body: JSON.stringify({ command, args })
+    });
+    const data = await res.json();
+    out.textContent = JSON.stringify(data, null, 2);
+  } catch (e) {
+    out.textContent = 'Request failed: ' + e.message;
+  }
+}
+</script>
+{% endblock %}
