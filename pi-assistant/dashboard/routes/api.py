@@ -70,42 +70,68 @@ def status():
 @api_bp.route("/chat", methods=["POST"])
 @login_required
 def chat():
-    """
-    Send a message to the betting assistant and get a reply.
-
-    Request body (JSON)
-    -------------------
-    {
-        "message": "Is Lakers -4.5 good value tonight?",
-        "context": {}    (optional extra context for the AI)
-    }
-
-    Response
-    --------
-    {
-        "ok": true,
-        "data": {
-            "reply": "...",
-            "ts": "2025-01-01T12:00:00+00:00"
-        }
-    }
-    """
+    """Send a message to the betting assistant (Data legacy endpoint)."""
     assistant = _get_assistant()
     if not assistant:
         return _err("Assistant not initialised", 503)
-
-    body = request.get_json(silent=True) or {}
+    body    = request.get_json(silent=True) or {}
     message = body.get("message", "").strip()
-
     if not message:
         return _err("'message' is required")
-
-    # Route through the betting_assistant plugin's chat command
     result = assistant.execute_command("chat", message=message)
-
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
+    return _ok(result)
 
+
+@api_bp.route("/chat/data", methods=["POST"])
+@login_required
+def chat_data():
+    """Send a message to the Data analytics agent."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    body    = request.get_json(silent=True) or {}
+    message = body.get("message", "").strip()
+    if not message:
+        return _err("'message' is required")
+    result = assistant.execute_command("chat_data", message=message)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 400)
+    return _ok(result)
+
+
+@api_bp.route("/chat/cortona", methods=["POST"])
+@login_required
+def chat_cortona():
+    """Send a message to Cortona (intuitive general intelligence)."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    body    = request.get_json(silent=True) or {}
+    message = body.get("message", "").strip()
+    if not message:
+        return _err("'message' is required")
+    result = assistant.execute_command("chat_cortona", message=message)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 400)
+    return _ok(result)
+
+
+@api_bp.route("/chat/jarvis", methods=["POST"])
+@login_required
+def chat_jarvis():
+    """Send a message to Jarvis (full-spectrum intelligence)."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    body    = request.get_json(silent=True) or {}
+    message = body.get("message", "").strip()
+    if not message:
+        return _err("'message' is required")
+    result = assistant.execute_command("chat_jarvis", message=message)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 400)
     return _ok(result)
 
 

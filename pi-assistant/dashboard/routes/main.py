@@ -33,8 +33,8 @@ def _get_assistant():
 @main_bp.route("/")
 @login_required
 def index():
-    """Root — redirect to chat (the primary interface)."""
-    return redirect(url_for("main.chat"))
+    """Root — redirect to Jarvis (primary interface)."""
+    return redirect(url_for("main.agent_jarvis"))
 
 
 @main_bp.route("/chat")
@@ -92,3 +92,86 @@ def plugins():
     if assistant and assistant.plugins:
         plugin_status = assistant.plugins.status_report()
     return render_template("plugins.html", plugins=plugin_status)
+
+
+# ── Agent pages ────────────────────────────────────────────────────────────────
+
+def _agent_history(assistant, plugin_name: str, limit: int = 50):
+    if assistant and assistant.memory:
+        return assistant.memory.get_history(limit=limit, plugin=plugin_name)
+    return []
+
+
+@main_bp.route("/agents/data")
+@login_required
+def agent_data():
+    assistant = _get_assistant()
+    return render_template(
+        "agent_chat.html",
+        agent_name        = "Data",
+        agent_emoji       = "📊",
+        agent_color       = "#38bdf8",
+        agent_color_dim   = "rgba(56,189,248,0.12)",
+        agent_desc        = "Pure analytics — numbers, stats, structured intelligence reports",
+        agent_placeholder = "Ask for a data report, stats breakdown, or analytical deep-dive…",
+        api_endpoint      = "/api/chat/data",
+        clear_command     = "clear_data",
+        history           = _agent_history(assistant, "data"),
+        chips             = [
+            {"label": "📈 Best bets tonight",        "text": "Run a full analytics report on tonight's best betting opportunities"},
+            {"label": "💹 Loan rate analysis",       "text": "Find me current personal loan rates and compare top lenders"},
+            {"label": "🏥 Injury impact report",     "text": "Give me a structured injury impact report for tonight's NBA games"},
+            {"label": "📊 Bankroll analytics",       "text": "Analyse my bankroll performance and give me statistical recommendations"},
+            {"label": "⚾ MLB home run leaders",     "text": "Pull today's MLB stats and home run leaders"},
+        ],
+    )
+
+
+@main_bp.route("/agents/cortona")
+@login_required
+def agent_cortona():
+    assistant = _get_assistant()
+    return render_template(
+        "agent_chat.html",
+        agent_name        = "Cortona",
+        agent_emoji       = "🔮",
+        agent_color       = "#a78bfa",
+        agent_color_dim   = "rgba(167,139,250,0.12)",
+        agent_desc        = "Intuitive general intelligence — engineering, loans, research, anything",
+        agent_placeholder = "Ask me anything — engineering, finance, research, life questions…",
+        api_endpoint      = "/api/chat/cortona",
+        clear_command     = "clear_cortona",
+        history           = _agent_history(assistant, "cortona"),
+        chips             = [
+            {"label": "🏠 Find me a loan",           "text": "Help me find the best personal loan options available right now"},
+            {"label": "🔧 Engineering help",          "text": "I need help with an engineering problem — where do I start?"},
+            {"label": "🎯 Betting strategy",          "text": "What betting strategy should I be using given my situation?"},
+            {"label": "💡 Research a topic",          "text": "Research this topic for me and give me the key insights:"},
+            {"label": "📱 Tech recommendation",      "text": "I need a tech recommendation — help me decide between options"},
+        ],
+    )
+
+
+@main_bp.route("/agents/jarvis")
+@login_required
+def agent_jarvis():
+    assistant = _get_assistant()
+    return render_template(
+        "agent_chat.html",
+        agent_name        = "Jarvis",
+        agent_emoji       = "🤖",
+        agent_color       = "#34d399",
+        agent_color_dim   = "rgba(52,211,153,0.12)",
+        agent_desc        = "Full-spectrum intelligence — analytics + intuition + live data, combined",
+        agent_placeholder = "Give me a task — Jarvis handles anything at full depth…",
+        api_endpoint      = "/api/chat/jarvis",
+        clear_command     = "clear_jarvis",
+        history           = _agent_history(assistant, "jarvis"),
+        chips             = [
+            {"label": "🎯 Full game report",          "text": "Give me a comprehensive report on tonight's best game to bet — data, experts, bots, everything"},
+            {"label": "💰 Finance + betting plan",    "text": "Build me a combined financial and betting bankroll plan"},
+            {"label": "🏗 Engineering + research",   "text": "I have an engineering challenge — research and solve it for me"},
+            {"label": "📋 Full daily brief",          "text": "Give me my full daily intelligence brief — sports, news, anything relevant"},
+            {"label": "🔍 Deep research task",        "text": "I need you to research something thoroughly and give me a complete report:"},
+        ],
+    )

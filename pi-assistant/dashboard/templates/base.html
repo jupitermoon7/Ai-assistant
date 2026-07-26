@@ -213,9 +213,17 @@
       <small>Personal AI Platform</small>
     </div>
     <div class="sidebar-nav">
-      <a href="{{ url_for('main.chat') }}"      class="{{ 'active' if request.endpoint == 'main.chat' }}">
-        💬 Chat
+      <div style="padding:8px 18px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);font-weight:600">Agents</div>
+      <a href="{{ url_for('main.agent_data') }}"    class="{{ 'active' if request.endpoint == 'main.agent_data' }}">
+        📊 Data
       </a>
+      <a href="{{ url_for('main.agent_cortona') }}" class="{{ 'active' if request.endpoint == 'main.agent_cortona' }}">
+        🔮 Cortona
+      </a>
+      <a href="{{ url_for('main.agent_jarvis') }}"  class="{{ 'active' if request.endpoint == 'main.agent_jarvis' }}">
+        🤖 Jarvis
+      </a>
+      <div style="padding:10px 18px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);font-weight:600">System</div>
       <a href="{{ url_for('main.overview') }}"  class="{{ 'active' if request.endpoint == 'main.overview' }}">
         ◉ Overview
       </a>

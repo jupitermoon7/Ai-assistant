@@ -274,10 +274,17 @@ class MemoryManager:
             for r in rows
         ]
 
-    def clear_history(self) -> int:
-        """Delete all conversation log entries. Returns the count deleted."""
+    def clear_history(self, plugin: str | None = None) -> int:
+        """
+        Delete conversation log entries.
+        If plugin is given, only that agent's history is cleared.
+        Returns the count deleted.
+        """
         with self._Session() as session:
-            count = session.execute(delete(ConversationEntry)).rowcount
+            q = delete(ConversationEntry)
+            if plugin:
+                q = q.where(ConversationEntry.plugin == plugin)
+            count = session.execute(q).rowcount
             session.commit()
-        log.warning(f"Conversation history cleared ({count} entries deleted)")
+        log.warning(f"Conversation history cleared ({count} entries deleted, plugin={plugin!r})")
         return count

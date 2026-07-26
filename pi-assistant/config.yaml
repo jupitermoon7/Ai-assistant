@@ -72,10 +72,11 @@ plugins:
   # Plugin-specific configuration (keyed by plugin name)
   settings:
     betting_assistant:
-      # Max conversation turns included in each AI request
+      history_limit: 20
+    agents:
+      # History limit per agent conversation
       history_limit: 20
     example_skill:
-      # Set to false to silence the example plugin once you no longer need it
       enabled: true
 
 # ── Conversation ───────────────────────────────────────────────────────────────
