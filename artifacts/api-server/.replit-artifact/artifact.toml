@@ -15,7 +15,7 @@ run = "cd /home/runner/workspace/pi-assistant && python main.py"
 [[services]]
 localPort = 8080
 name = "API Server"
-paths = ["/api"]
+paths = ["/node-api"]
 
 [services.development]
 run = "pnpm --filter @workspace/api-server run dev"
@@ -36,4 +36,4 @@ PORT = "8080"
 NODE_ENV = "production"
 
 [services.production.health.startup]
-path = "/api/healthz"
+path = "/node-api/healthz"
