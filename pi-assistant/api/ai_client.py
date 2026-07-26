@@ -11,6 +11,9 @@ Supports:
 Retry behaviour: all requests automatically retry up to ``max_retries`` times
 with exponential back-off on transient errors (connection, 429, 5xx).
 
+Tool/function calling: pass ``tools`` and the client returns either a plain
+string reply OR a list of tool-call dicts for the caller to execute.
+
 Usage
 -----
     from api.ai_client import AIClient
@@ -22,12 +25,13 @@ Usage
     response = client.chat("Tell me a joke")
     print(response)
 
-    # Multi-turn conversation
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user",   "content": "What is 2+2?"},
-    ]
-    response = client.chat_messages(messages)
+    # Multi-turn with tools
+    result = client.chat_messages(messages, tools=TOOL_DEFINITIONS)
+    if isinstance(result, list):
+        # result is a list of {"id", "name", "arguments"} dicts
+        ...
+    else:
+        print(result)  # plain string reply
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ class _RateLimitError(Exception):
 
 class AIClient:
     """
-    OpenAI-compatible LLM client with automatic retries.
+    OpenAI-compatible LLM client with automatic retries and tool-call support.
 
     Parameters
     ----------
@@ -91,13 +95,6 @@ class AIClient:
 
     @classmethod
     def from_config(cls, config: Any) -> "AIClient":
-        """
-        Convenience constructor that reads all settings from the config object.
-
-        Parameters
-        ----------
-        config : The application config singleton (core.config.Config).
-        """
         return cls(
             base_url=config.get("ai.base_url", "https://api.openai.com/v1"),
             api_key=config.get("ai.api_key", ""),
@@ -117,60 +114,73 @@ class AIClient:
     ) -> str:
         """
         Send a single-turn chat message and return the response text.
-
-        Parameters
-        ----------
-        user_message  : The user's input string.
-        system_prompt : System instruction for the model.
-        model         : Override the default model for this request.
-        **kwargs      : Extra parameters forwarded to the API (temperature, etc.).
-
-        Returns
-        -------
-        str : The model's reply text.
+        Does not support tool calls — use chat_messages() for that.
         """
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
         ]
-        return self.chat_messages(messages, model=model, **kwargs)
+        result = self.chat_messages(messages, model=model, **kwargs)
+        # chat() always returns a string (no tools passed)
+        return result if isinstance(result, str) else str(result)
 
     def chat_messages(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict],
         model: str | None = None,
+        tools: list[dict] | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> str | list[dict]:
         """
-        Send a full message list (multi-turn) and return the response text.
+        Send a full message list and return either:
+        - str  — the assistant's reply text (no tool calls requested)
+        - list — a list of tool-call dicts: [{"id", "name", "arguments"}, ...]
 
         Parameters
         ----------
         messages : List of dicts with "role" and "content" keys.
         model    : Override the default model.
+        tools    : OpenAI tool definitions list. When provided, the model may
+                   return tool calls instead of a text reply.
         **kwargs : Extra API parameters (temperature, max_tokens, etc.).
-
-        Returns
-        -------
-        str : The model's reply text.
         """
         payload: dict[str, Any] = {
             "model": model or self._model,
             "messages": messages,
             **kwargs,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
         data = self._post_with_retry("/chat/completions", payload)
+
         try:
-            return data["choices"][0]["message"]["content"]
+            choice  = data["choices"][0]
+            message = choice["message"]
+            finish  = choice.get("finish_reason", "")
+
+            # The model wants to call tools
+            if finish == "tool_calls" or message.get("tool_calls"):
+                calls = []
+                for tc in message["tool_calls"]:
+                    calls.append({
+                        "id":        tc["id"],
+                        "name":      tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                        # Preserve the raw message for appending to history
+                        "_raw_message": message,
+                    })
+                return calls
+
+            # Plain text reply
+            return message.get("content") or ""
+
         except (KeyError, IndexError) as exc:
             raise AIClientError(f"Unexpected API response shape: {data}") from exc
 
     def list_models(self) -> list[str]:
-        """
-        Return the list of model names available at the configured endpoint.
-
-        Useful for checking Ollama availability or confirming API connectivity.
-        """
+        """Return model names available at the configured endpoint."""
         try:
             response = self._client.get("/models")
             response.raise_for_status()
@@ -181,11 +191,7 @@ class AIClient:
             return []
 
     def health_check(self) -> dict[str, Any]:
-        """
-        Verify API connectivity without consuming tokens.
-
-        Returns a dict with "reachable" (bool) and optional "error".
-        """
+        """Verify API connectivity without consuming tokens."""
         try:
             models = self.list_models()
             return {"reachable": True, "model": self._model, "available_models": models[:5]}
@@ -214,13 +220,11 @@ class AIClient:
                     "Check that OPENAI_API_KEY is set correctly in your .env file."
                 )
             if response.status_code == 429:
-                # Retry-able — raise _RateLimitError so tenacity catches it
                 log.warning("Rate limited by AI provider — retrying with backoff…")
                 raise _RateLimitError(
                     "Rate limited by the AI provider (HTTP 429). "
                     "If this keeps happening, check your OpenAI billing at "
-                    "platform.openai.com/settings/billing — free tier keys have "
-                    "very low request limits."
+                    "platform.openai.com/settings/billing."
                 )
             response.raise_for_status()
             return response.json()

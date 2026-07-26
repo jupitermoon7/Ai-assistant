@@ -33,6 +33,11 @@ rich==13.7.1               # Beautiful console output and log formatting
 click==8.1.7               # CLI helper for management commands
 python-dateutil==2.9.0     # Date/time parsing utilities
 
+# Web scraping & live data
+beautifulsoup4==4.12.3
+lxml==5.2.2
+duckduckgo-search==8.1.1   # Free live web search for the AI agent
+
 # Testing
 pytest==8.3.2
 pytest-mock==3.14.0
