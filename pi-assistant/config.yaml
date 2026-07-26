@@ -94,3 +94,24 @@ betting:
   # Sports you follow most — shown in the system prompt as context
   # e.g. ["NFL", "NBA", "Soccer - EPL", "UFC"]
   tracked_sports: []
+
+# ── Web Scout ──────────────────────────────────────────────────────────────────
+# Sources: Reddit, ESPN, Action Network, RotoWire, Covers.com
+# Twitter/X requires a paid API ($100/month) — not supported
+# Discord requires a bot token — not supported
+web_scout:
+  # How often to auto-run the scout (hours). Default: 6
+  scout_interval_hours: 6
+  # Minimum Reddit post score to include (filters noise)
+  reddit_min_score: 20
+  # Maximum findings sent to AI (controls token cost)
+  max_findings: 40
+
+# ── Email Reports ──────────────────────────────────────────────────────────────
+# Credentials are set via environment variables (NEVER put them in this file):
+#   EMAIL_USER       — Your Gmail address
+#   EMAIL_PASSWORD   — Gmail App Password (myaccount.google.com/apppasswords)
+#   EMAIL_RECIPIENT  — Where to send reports (can be same as EMAIL_USER)
+email:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
