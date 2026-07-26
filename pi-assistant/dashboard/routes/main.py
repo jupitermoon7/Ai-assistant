@@ -152,6 +152,12 @@ def agent_cortona():
     )
 
 
+@main_bp.route("/agents/council")
+@login_required
+def agent_council():
+    return render_template("council.html")
+
+
 @main_bp.route("/agents/jarvis")
 @login_required
 def agent_jarvis():

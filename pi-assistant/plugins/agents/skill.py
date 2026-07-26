@@ -228,6 +228,7 @@ class AgentsPlugin(BasePlugin):
             "clear_cortona": self.clear_cortona,
             "clear_jarvis":  self.clear_jarvis,
             "agents_status": self.agents_status,
+            "council":       self.handle_council,
         }
 
     # ── Chat handlers ──────────────────────────────────────────────────────────
@@ -249,6 +250,89 @@ class AgentsPlugin(BasePlugin):
             return {"error": "message is required"}
         reply = self._jarvis.chat(user_message=message, plugin="jarvis")
         return {"agent": "Jarvis", "reply": reply, "ts": _now()}
+
+    # ── Council ────────────────────────────────────────────────────────────────
+
+    def handle_council(self, message: str = "", **_) -> dict[str, Any]:
+        """
+        Council session — two rounds of inter-agent deliberation.
+
+        Round 1: All three agents answer the question independently (parallel).
+        Round 2: Each agent reads the other two's Round 1 answers and reacts
+                 — agreeing, challenging, or building on them (parallel).
+
+        Returns a structured dict with both rounds for every agent.
+        """
+        if not message:
+            return {"error": "message is required"}
+
+        import concurrent.futures
+
+        # ── Round 1: independent answers ──────────────────────────────────────
+        log.info(f"[council] Round 1 — question: {message[:80]}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            f_data    = pool.submit(self._data.consult,    message)
+            f_cortona = pool.submit(self._cortona.consult, message)
+            f_jarvis  = pool.submit(self._jarvis.consult,  message)
+            data_r1    = f_data.result()
+            cortona_r1 = f_cortona.result()
+            jarvis_r1  = f_jarvis.result()
+
+        log.info("[council] Round 1 complete. Starting Round 2.")
+
+        # ── Round 2: each agent reacts to the other two ───────────────────────
+        def _r2_prompt(speaker: str, others: dict[str, str]) -> str:
+            lines = [
+                f'The council was asked: "{message}"',
+                "",
+                "The other agents have responded:",
+                "",
+            ]
+            for name, reply in others.items():
+                lines += [f"[{name.upper()}]:", reply, ""]
+            lines += [
+                "---",
+                "Now give YOUR response.",
+                "React directly to what they said — where do you agree? Where do you push back?",
+                "Build on their insights or challenge their conclusions.",
+                "Be direct and specific. This is a deliberation, not a summary.",
+            ]
+            return "\n".join(lines)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            f_data2    = pool.submit(self._data.consult,
+                             _r2_prompt("Data",    {"Cortona": cortona_r1, "Jarvis": jarvis_r1}))
+            f_cortona2 = pool.submit(self._cortona.consult,
+                             _r2_prompt("Cortona", {"Data": data_r1,       "Jarvis": jarvis_r1}))
+            f_jarvis2  = pool.submit(self._jarvis.consult,
+                             _r2_prompt("Jarvis",  {"Data": data_r1,       "Cortona": cortona_r1}))
+            data_r2    = f_data2.result()
+            cortona_r2 = f_cortona2.result()
+            jarvis_r2  = f_jarvis2.result()
+
+        log.info("[council] Round 2 complete.")
+
+        return {
+            "question": message,
+            "ts": _now(),
+            "rounds": [
+                {
+                    "round": 1,
+                    "label": "Initial Positions",
+                    "data":    data_r1,
+                    "cortona": cortona_r1,
+                    "jarvis":  jarvis_r1,
+                },
+                {
+                    "round": 2,
+                    "label": "Deliberation",
+                    "data":    data_r2,
+                    "cortona": cortona_r2,
+                    "jarvis":  jarvis_r2,
+                },
+            ],
+        }
 
     # ── Clear handlers ─────────────────────────────────────────────────────────
 

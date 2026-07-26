@@ -135,6 +135,30 @@ def chat_jarvis():
     return _ok(result)
 
 
+@api_bp.route("/chat/council", methods=["POST"])
+@login_required
+def chat_council():
+    """
+    Run a full Council session — two rounds of inter-agent deliberation.
+
+    Round 1: Data, Cortona, and Jarvis each answer independently (parallel).
+    Round 2: Each agent reads the other two's answers and reacts (parallel).
+
+    Returns structured JSON with both rounds for all three agents.
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    body    = request.get_json(silent=True) or {}
+    message = body.get("message", "").strip()
+    if not message:
+        return _err("'message' is required")
+    result = assistant.execute_command("council", message=message)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 400)
+    return _ok(result)
+
+
 # ── Conversation history ───────────────────────────────────────────────────────
 
 @api_bp.route("/history")

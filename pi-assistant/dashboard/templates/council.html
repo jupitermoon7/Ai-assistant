@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% block title %}Council — Pi Assistant{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Layout ── */
+  .council-wrap {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 56px);
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .council-header {
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg-primary);
+  }
+  .council-header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: gold;
+    margin: 0 0 4px;
+    letter-spacing: .5px;
+  }
+  .council-header p {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  /* ── Session history list ── */
+  .council-sessions {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* ── Single session block ── */
+  .session-question {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: rgba(255,215,0,.07);
+    border-left: 3px solid gold;
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 16px;
+  }
+
+  /* ── Round label ── */
+  .round-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .round-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── 3-column grid ── */
+  .agents-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 900px) {
+    .agents-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Agent card ── */
+  .agent-card {
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .agent-card-header {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .agent-card-body {
+    padding: 12px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .card-data    { border-color: rgba(56,189,248,.35); }
+  .card-data .agent-card-header    { background: rgba(56,189,248,.10); color: #38bdf8; }
+  .card-cortona { border-color: rgba(167,139,250,.35); }
+  .card-cortona .agent-card-header { background: rgba(167,139,250,.10); color: #a78bfa; }
+  .card-jarvis  { border-color: rgba(52,211,153,.35); }
+  .card-jarvis .agent-card-header  { background: rgba(52,211,153,.10); color: #34d399; }
+
+  /* ── Markdown-lite ── */
+  .agent-card-body strong,
+  .agent-card-body b { font-weight: 700; }
+  .agent-card-body em { font-style: italic; color: var(--text-dim); }
+
+  /* ── Loading skeleton ── */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--border) 50%, var(--bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 6px;
+    height: 14px;
+    margin-bottom: 8px;
+  }
+  .skeleton.long  { width: 90%; }
+  .skeleton.med   { width: 65%; }
+  .skeleton.short { width: 40%; }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Round 2 reaction badge ── */
+  .reaction-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 12px;
+    margin-left: 6px;
+    font-weight: 600;
+    letter-spacing: .4px;
+  }
+  .badge-data    { background: rgba(56,189,248,.15);  color: #38bdf8; }
+  .badge-cortona { background: rgba(167,139,250,.15); color: #a78bfa; }
+  .badge-jarvis  { background: rgba(52,211,153,.15);  color: #34d399; }
+
+  /* ── Input area ── */
+  .council-input-area {
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-primary);
+    flex-shrink: 0;
+  }
+  .chip-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .chip {
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,215,0,.3);
+    background: rgba(255,215,0,.05);
+    color: gold;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .chip:hover { background: rgba(255,215,0,.12); }
+  .input-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  .input-row textarea {
+    flex: 1;
+    resize: none;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    padding: 11px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.5;
+    min-height: 48px;
+    max-height: 120px;
+    transition: border-color .15s;
+    overflow-y: auto;
+  }
+  .input-row textarea:focus {
+    outline: none;
+    border-color: gold;
+  }
+  .send-btn {
+    padding: 11px 22px;
+    border-radius: 10px;
+    border: none;
+    background: gold;
+    color: #111;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity .15s;
+    white-space: nowrap;
+    height: 48px;
+  }
+  .send-btn:disabled { opacity: .45; cursor: default; }
+  .send-btn:not(:disabled):hover { opacity: .85; }
+
+  .status-bar {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    min-height: 18px;
+    transition: color .2s;
+  }
+  .status-bar.active { color: gold; }
+</style>
+
+<div class="council-wrap">
+
+  <div class="council-header">
+    <h1>⚡ Council</h1>
+    <p>All three agents deliberate your question — independently, then in reaction to each other.</p>
+  </div>
+
+  <div class="council-sessions" id="sessions">
+    <!-- sessions injected here -->
+    <div id="empty-state" style="color:var(--text-dim);font-size:14px;text-align:center;margin-top:60px;">
+      Ask a question below to convene the council.
+    </div>
+  </div>
+
+  <div class="council-input-area">
+    <div class="chip-row">
+      <div class="chip" onclick="useChip(this)">🎯 Best bet tonight — full council debate</div>
+      <div class="chip" onclick="useChip(this)">💰 Bankroll strategy — where do you all disagree?</div>
+      <div class="chip" onclick="useChip(this)">🏗 Best loan option for me right now</div>
+      <div class="chip" onclick="useChip(this)">📊 Biggest sports story today — council take</div>
+      <div class="chip" onclick="useChip(this)">🔮 Parlay or single bets — council debate</div>
+    </div>
+    <div class="input-row">
+      <textarea id="q-input" rows="1" placeholder="Ask the council…" onkeydown="handleKey(event)" oninput="autosize(this)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendToCouncil()">Convene ⚡</button>
+    </div>
+    <div class="status-bar" id="status-bar"></div>
+  </div>
+
+</div>
+
+<script>
+const sessions   = document.getElementById('sessions');
+const inputEl    = document.getElementById('q-input');
+const sendBtn    = document.getElementById('send-btn');
+const statusBar  = document.getElementById('status-bar');
+const emptyState = document.getElementById('empty-state');
+
+function setStatus(msg, active = false) {
+  statusBar.textContent = msg;
+  statusBar.className = 'status-bar' + (active ? ' active' : '');
+}
+
+function autosize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCouncil(); }
+}
+
+function useChip(el) {
+  inputEl.value = el.textContent.trim().replace(/^[^\w]+/, '');
+  inputEl.focus();
+  autosize(inputEl);
+}
+
+// ── Simple markdown-lite renderer ──────────────────────────────────────────
+function renderMd(text) {
+  if (!text) return '<em style="color:var(--text-dim)">(no response)</em>';
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+// ── Skeleton placeholder ───────────────────────────────────────────────────
+function skeletonHTML() {
+  return `<div class="skeleton long"></div>
+          <div class="skeleton med"></div>
+          <div class="skeleton short"></div>
+          <div class="skeleton long" style="margin-top:8px"></div>
+          <div class="skeleton med"></div>`;
+}
+
+function agentCardHTML(cls, emoji, label, badge, bodyHTML) {
+  return `
+    <div class="agent-card ${cls}">
+      <div class="agent-card-header">
+        ${emoji} ${label}
+        ${badge ? `<span class="reaction-badge ${badge}">reacting</span>` : ''}
+      </div>
+      <div class="agent-card-body">${bodyHTML}</div>
+    </div>`;
+}
+
+// ── Build a complete session block ─────────────────────────────────────────
+function buildSession(question, rounds) {
+  const wrap = document.createElement('div');
+  wrap.className = 'session-block';
+
+  let html = `<div class="session-question">You asked: ${escHtml(question)}</div>`;
+
+  rounds.forEach(r => {
+    html += `<div class="round-label">Round ${r.round} — ${escHtml(r.label)}</div>`;
+    html += `<div class="agents-grid">`;
+    const isr2 = r.round === 2;
+    html += agentCardHTML('card-data',    '📊', 'Data',    isr2 ? 'badge-data'    : '', renderMd(r.data));
+    html += agentCardHTML('card-cortona', '🔮', 'Cortona', isr2 ? 'badge-cortona' : '', renderMd(r.cortona));
+    html += agentCardHTML('card-jarvis',  '🤖', 'Jarvis',  isr2 ? 'badge-jarvis'  : '', renderMd(r.jarvis));
+    html += `</div>`;
+  });
+
+  wrap.innerHTML = html;
+  return wrap;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Loading session (skeleton) ─────────────────────────────────────────────
+function buildLoadingSession(question) {
+  const wrap = document.createElement('div');
+  wrap.id = 'loading-session';
+
+  let html = `<div class="session-question">You asked: ${escHtml(question)}</div>`;
+
+  // Round 1 skeleton
+  html += `<div class="round-label" id="r1-label">Round 1 — Initial Positions</div>
+           <div class="agents-grid">`;
+  html += agentCardHTML('card-data',    '📊', 'Data',    '', skeletonHTML());
+  html += agentCardHTML('card-cortona', '🔮', 'Cortona', '', skeletonHTML());
+  html += agentCardHTML('card-jarvis',  '🤖', 'Jarvis',  '', skeletonHTML());
+  html += `</div>`;
+
+  // Round 2 skeleton (dimmed while R1 is loading)
+  html += `<div class="round-label" id="r2-label" style="opacity:.35">Round 2 — Deliberation</div>
+           <div class="agents-grid" id="r2-grid" style="opacity:.35">`;
+  html += agentCardHTML('card-data',    '📊', 'Data',    'badge-data',    skeletonHTML());
+  html += agentCardHTML('card-cortona', '🔮', 'Cortona', 'badge-cortona', skeletonHTML());
+  html += agentCardHTML('card-jarvis',  '🤖', 'Jarvis',  'badge-jarvis',  skeletonHTML());
+  html += `</div>`;
+
+  wrap.innerHTML = html;
+  return wrap;
+}
+
+// ── Main send ──────────────────────────────────────────────────────────────
+async function sendToCouncil() {
+  const question = inputEl.value.trim();
+  if (!question) return;
+
+  emptyState.style.display = 'none';
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  sendBtn.disabled = true;
+  setStatus('⚡ Convening council… Round 1 in progress (this takes ~30–60s)', true);
+
+  // Inject loading skeleton
+  const loadingEl = buildLoadingSession(question);
+  sessions.appendChild(loadingEl);
+  loadingEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const res  = await fetch('/api/chat/council', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message: question }),
+    });
+    const json = await res.json();
+
+    // Remove skeleton
+    loadingEl.remove();
+
+    if (!json.ok) {
+      setStatus('Error: ' + (json.error || 'Unknown error'));
+      return;
+    }
+
+    const data    = json.data;
+    const session = buildSession(data.question, data.rounds);
+    sessions.appendChild(session);
+    session.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setStatus('');
+
+  } catch (err) {
+    loadingEl.remove();
+    setStatus('Request failed: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+</script>
+{% endblock %}
