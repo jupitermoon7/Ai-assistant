@@ -17,7 +17,7 @@ assistant:
 dashboard:
   enabled: true
   host: "0.0.0.0"   # Bind to all interfaces so you can reach it from Android
-  port: 8080
+  port: 8000
   # Secret key for Flask session signing — OVERRIDE this in .env via DASHBOARD_SECRET_KEY
   secret_key: "change-me-in-env"
   # Session lifetime in minutes

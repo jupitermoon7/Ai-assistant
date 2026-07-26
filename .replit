@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -11,6 +11,27 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Pi Assistant"
+
+[[workflows.workflow]]
+name = "Pi Assistant"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd pi-assistant && python main.py"
+waitForPort = 8000
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -18,3 +39,14 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"
+packages = ["cargo", "libiconv", "libxcrypt", "libyaml", "openssl", "pkg-config", "rustc"]
+
+[userenv]
+
+[userenv.shared]
+DASHBOARD_PASSWORD_HASH = "$2b$12$0WyDH0uxCg0f0BmGQw8XSuO10PqHlvCfU7zK6yYxyeaGhjdBAq2fe"
+DASHBOARD_SECRET_KEY = "ae554d97fe0965d94691c575eb28cf16b3bc165a334038fa256bbffea8d4ac38"
+DASHBOARD_USERNAME = "admin"
