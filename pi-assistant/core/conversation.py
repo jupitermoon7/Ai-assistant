@@ -93,6 +93,10 @@ class ConversationManager:
     system_prompt   : Override the default betting system prompt.
     history_limit   : Maximum past turns to include per request (default 20).
     model           : Override the default model for this conversation.
+    extra_tools     : Additional tool definitions to inject (e.g. consult_* tools).
+    extra_executor  : Callable(tool_name, args) → str | None for extra tools.
+                      Return None if the tool_name is not handled; the base
+                      executor is tried next.
     """
 
     def __init__(
@@ -102,18 +106,33 @@ class ConversationManager:
         system_prompt: str = BETTING_SYSTEM_PROMPT,
         history_limit: int = 20,
         model: str | None = None,
+        extra_tools: list[dict] | None = None,
+        extra_executor: Any | None = None,
     ) -> None:
-        self.ai_client    = ai_client
-        self.memory       = memory
+        self.ai_client     = ai_client
+        self.memory        = memory
         self.system_prompt = system_prompt
         self.history_limit = history_limit
-        self.model        = model
+        self.model         = model
 
         # Import tools lazily so this module stays importable even if
         # optional deps (beautifulsoup4, duckduckgo-search) aren't installed yet.
         from core.agent_tools import TOOL_DEFINITIONS, execute_tool
         self._tool_definitions = TOOL_DEFINITIONS
         self._execute_tool     = execute_tool
+
+        # Inter-agent consultation tools (injected after construction)
+        self._extra_tools    = extra_tools or []
+        self._extra_executor = extra_executor  # callable(name, args) → str | None
+
+    def set_peer_tools(
+        self,
+        extra_tools: list[dict],
+        extra_executor: Any,
+    ) -> None:
+        """Wire in peer-agent consultation tools after all agents are created."""
+        self._extra_tools    = extra_tools
+        self._extra_executor = extra_executor
 
     # ── Public interface ───────────────────────────────────────────────────────
 
@@ -149,16 +168,60 @@ class ConversationManager:
         # Build the initial message list
         messages = self._build_messages(user_message, context)
 
-        # ── Agentic tool loop ──────────────────────────────────────────────────
+        # Full tool set = base tools + any peer-agent consultation tools
+        all_tools = self._tool_definitions + self._extra_tools
+
+        reply = self._run_tool_loop(messages, all_tools)
+
+        # Persist both sides of the conversation
+        self.memory.log_message("user",      user_message, plugin=plugin)
+        self.memory.log_message("assistant", reply,        plugin=plugin)
+
+        log.info(f"[conversation] Assistant: {reply[:80]}{'...' if len(reply) > 80 else ''}")
+        return reply
+
+    def consult(self, question: str) -> str:
+        """
+        Lightweight single-purpose consultation — called by peer agents.
+
+        Uses only the base external tools (no peer-consult tools) so there
+        is NO risk of circular consultation loops. Results are NOT persisted
+        to memory because this is an intermediate step, not a user turn.
+
+        Returns the agent's answer as a plain string.
+        """
+        if not question.strip():
+            return "(No question provided)"
+
+        log.info(f"[conversation] [consult] Question: {question[:80]}{'...' if len(question) > 80 else ''}")
+
+        now = datetime.now(timezone.utc).strftime("%A %d %B %Y, %H:%M UTC")
+        messages = [
+            {"role": "system", "content": f"{self.system_prompt}\nCurrent date/time: {now}"},
+            {"role": "user",   "content": question},
+        ]
+
+        # Use ONLY base tools — no peer tools — prevents infinite recursion
+        reply = self._run_tool_loop(messages, self._tool_definitions)
+        log.info(f"[conversation] [consult] Reply: {reply[:80]}{'...' if len(reply) > 80 else ''}")
+        return reply
+
+    # ── Core tool loop (shared by chat + consult) ──────────────────────────────
+
+    def _run_tool_loop(self, messages: list[dict], tools: list[dict]) -> str:
+        """
+        Run the agentic tool loop on the given message list.
+        Returns the final reply string.
+        """
         reply = ""
         tools_used: list[str] = []
 
-        for iteration in range(MAX_TOOL_ITERATIONS):
+        for _iteration in range(MAX_TOOL_ITERATIONS):
             try:
                 result = self.ai_client.chat_messages(
                     messages,
                     model=self.model,
-                    tools=self._tool_definitions,
+                    tools=tools,
                 )
             except Exception as exc:
                 log.exception("AI client error during conversation turn")
@@ -167,14 +230,13 @@ class ConversationManager:
                     "Check your API key and connection settings."
                 )
 
-            # ── Plain text reply — we're done ──────────────────────────────────
+            # Plain text reply — done
             if isinstance(result, str):
                 reply = result
                 break
 
-            # ── Tool calls — execute each one and loop back ────────────────────
+            # Tool calls — execute each one and loop back
             if isinstance(result, list) and result:
-                # The raw assistant message (with tool_calls) must be in history
                 raw_msg = result[0].get("_raw_message")
                 if raw_msg:
                     messages.append(raw_msg)
@@ -185,10 +247,9 @@ class ConversationManager:
                     tools_used.append(tool_name)
 
                     log.info(f"[conversation] Tool call: {tool_name}({tool_args})")
-                    tool_result = self._execute_tool(tool_name, tool_args)
+                    tool_result = self._dispatch_tool(tool_name, tool_args)
                     log.info(f"[conversation] Tool result: {tool_result[:120]}…")
 
-                    # Feed the tool result back as a tool message
                     messages.append({
                         "role":         "tool",
                         "tool_call_id": call["id"],
@@ -196,12 +257,10 @@ class ConversationManager:
                         "content":      tool_result,
                     })
             else:
-                # Unexpected — break to avoid infinite loop
                 log.warning(f"[conversation] Unexpected AI result type: {type(result)}")
                 reply = "Something went wrong — please try again."
                 break
         else:
-            # Hit the iteration cap — ask the AI for a final answer with what it has
             log.warning(f"[conversation] Hit MAX_TOOL_ITERATIONS ({MAX_TOOL_ITERATIONS})")
             try:
                 messages.append({
@@ -216,12 +275,18 @@ class ConversationManager:
         if tools_used:
             log.info(f"[conversation] Tools used this turn: {', '.join(tools_used)}")
 
-        # Persist both sides of the conversation
-        self.memory.log_message("user",      user_message, plugin=plugin)
-        self.memory.log_message("assistant", reply,        plugin=plugin)
-
-        log.info(f"[conversation] Assistant: {reply[:80]}{'...' if len(reply) > 80 else ''}")
         return reply
+
+    def _dispatch_tool(self, tool_name: str, tool_args: dict) -> str:
+        """
+        Execute a tool call. Tries extra_executor first (peer-agent tools),
+        then falls back to the base tool executor.
+        """
+        if self._extra_executor:
+            result = self._extra_executor(tool_name, tool_args)
+            if result is not None:
+                return result
+        return self._execute_tool(tool_name, tool_args)
 
     def get_history_for_display(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent conversation history for the dashboard UI."""
