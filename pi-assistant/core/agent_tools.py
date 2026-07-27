@@ -300,52 +300,76 @@ def search_web(query: str) -> str:
 
 def get_live_odds(sport: str) -> str:
     """
-    Fetch today's live lines from Action Network's public API.
-    Returns spread, total, ML, and public betting % for each game.
+    Fetch today's live lines from ESPN's scoreboard API (DraftKings odds).
+    Returns spread, total, ML, and game time for each game.
     """
     log.info(f"[agent_tools] get_live_odds: {sport}")
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    sport_map = {
+        "nfl":    ("football",   "nfl"),
+        "nba":    ("basketball", "nba"),
+        "mlb":    ("baseball",   "mlb"),
+        "nhl":    ("hockey",     "nhl"),
+        "soccer": ("soccer",     "eng.1"),
+    }
+    sport_path, league = sport_map.get(sport.lower(), ("baseball", "mlb"))
 
     try:
-        url = (
-            f"https://api.actionnetwork.com/web/v1/scoreboard/{sport}"
-            f"?period=event&bookIds=15,30,76&date={today}"
-        )
+        url = f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/{league}/scoreboard"
         r = httpx.get(url, headers=_HEADERS, timeout=12, follow_redirects=True)
         if r.status_code != 200:
-            return f"Action Network returned HTTP {r.status_code} for {sport.upper()}."
+            return f"ESPN odds returned HTTP {r.status_code} for {sport.upper()}."
 
-        games = r.json().get("games", [])
-        if not games:
-            return f"No {sport.upper()} games found today ({today})."
+        events = r.json().get("events", [])
+        if not events:
+            return f"No {sport.upper()} games found today — {sport.upper()} may not be in season."
 
-        lines_out: list[str] = [
-            f"Live {sport.upper()} lines ({datetime.now(timezone.utc).strftime('%H:%M UTC')}):"
-        ]
-        for game in games[:10]:
-            home = game.get("home_team", {}).get("full_name", "TBD")
-            away = game.get("away_team", {}).get("full_name", "TBD")
-            start = game.get("start_time", "")
+        now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        lines_out: list[str] = [f"Live {sport.upper()} odds via DraftKings ({now_str}):"]
 
-            spread = total = ml_home = ml_away = "N/A"
-            raw_lines = game.get("lines", [])
-            if raw_lines:
-                best = raw_lines[0]
-                spread  = best.get("spread",  "N/A")
-                total   = best.get("total",   "N/A")
-                ml_home = best.get("home_ml", "N/A")
-                ml_away = best.get("away_ml", "N/A")
+        for event in events:
+            name       = event.get("name", "Unknown game")
+            comp       = (event.get("competitions") or [{}])[0]
+            competitors = comp.get("competitors", [])
+            status_obj = event.get("status", {})
+            status_desc = status_obj.get("type", {}).get("shortDetail", "")
 
-            consensus = game.get("consensus", {})
-            away_pct  = consensus.get("away_ml", "?")
-            home_pct  = consensus.get("home_ml", "?")
+            # Team names from competitors
+            home_name = away_name = ""
+            for c in competitors:
+                tname = c.get("team", {}).get("shortDisplayName", "")
+                if c.get("homeAway") == "home":
+                    home_name = tname
+                else:
+                    away_name = tname
+            if not home_name or not away_name:
+                home_name = away_name = name
 
-            lines_out.append(
-                f"\n{away} @ {home}  [{start}]"
-                f"\n  Spread: {spread}  |  Total: {total}"
-                f"\n  ML: {away} {ml_away} / {home} {ml_home}"
-                f"\n  Public money: {away_pct}% {away} / {home_pct}% {home}"
-            )
+            # Odds from ESPN/DraftKings
+            odds_list = comp.get("odds", [])
+            if odds_list:
+                o        = odds_list[0]
+                book     = o.get("provider", {}).get("name", "DraftKings")
+                details  = o.get("details", "N/A")        # e.g. "SEA -136"
+                total    = o.get("overUnder", "N/A")
+                spread   = o.get("spread", "N/A")
+                ml_obj   = o.get("moneyline") or o.get("moneyLine") or {}
+                away_ml  = ((ml_obj.get("away") or {}).get("close") or {}).get("odds", "N/A")
+                home_ml  = ((ml_obj.get("home") or {}).get("close") or {}).get("odds", "N/A")
+                fav      = "away" if (o.get("awayTeamOdds") or {}).get("favorite") else "home"
+                fav_name = away_name if fav == "away" else home_name
+
+                lines_out.append(
+                    f"\n{away_name} @ {home_name}  [{status_desc}]"
+                    f"\n  Favorite: {fav_name} ({details})  |  O/U: {total}"
+                    f"\n  Spread: {spread}  |  ML: {away_name} {away_ml} / {home_name} {home_ml}"
+                    f"\n  Book: {book}"
+                )
+            else:
+                lines_out.append(
+                    f"\n{away_name} @ {home_name}  [{status_desc}]"
+                    f"\n  Odds not yet available"
+                )
 
         return "\n".join(lines_out)
 

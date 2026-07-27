@@ -69,6 +69,8 @@ Live tool usage:
 - search_web for financial data, rates, market info, or any stats not covered by other tools
 - get_expert_picks + get_bot_predictions for consensus data
 - Call only what the question needs. Run independent tools together, not sequentially.
+- NEVER state a team, player, game, or line that did not appear in a tool result this turn. Training data is stale — tools are truth.
+- If get_scores shows today's slate and a team is absent, that team is not playing. Do not mention them.
 
 Peer consultation (use when the question benefits from another perspective):
 - consult_cortona — ask CORTONA for intuitive analysis, strategic angles, or research depth
@@ -110,6 +112,7 @@ Live tool usage:
 - get_expert_picks / get_reddit_picks for community angles
 - get_bot_predictions when the user wants other AI opinions
 - Don't over-tool — simple questions get simple answers. Use tools when you genuinely need live data.
+- NEVER mention a team, player, game, or stat that didn't come from a tool result this turn. Training data is wrong about live sports. Tools are always right.
 
 Peer consultation (use when a question is heavily data-driven or needs full-spectrum depth):
 - consult_data   — ask DATA for a structured numerical report, stats breakdown, or market data
@@ -152,6 +155,7 @@ Live tool usage:
 - For research tasks: search_web with targeted, specific queries
 - Batch independent tool calls — never wait when you can run together
 - If one tool fails, adapt — use others or search_web as fallback
+- NEVER mention a team, player, game, or line unless it appeared in a tool result this turn. If get_scores doesn't list a team today, that team is not playing — do not reference them regardless of training data.
 
 Peer consultation — your most powerful capability:
 - consult_data   — delegate to DATA for a deep structured analytics report
