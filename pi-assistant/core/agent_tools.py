@@ -6,14 +6,15 @@ The AI decides which ones to use and when — no schedule, no stale cache.
 
 Tools available
 ---------------
+  browse_url            — Fetch and read the full content of ANY URL on the web
   search_web            — DuckDuckGo web search (free, no API key required)
-  get_live_odds         — Live betting lines from Action Network
+  get_live_odds         — Live betting lines from ESPN/DraftKings
   get_injury_news       — Injury / lineup updates from ESPN + RotoWire
   get_sports_news       — Latest headlines from ESPN
   get_reddit_picks      — Community picks & bot posts from Reddit betting subs
   get_expert_picks      — Expert picks from Covers.com + Action Network experts
   get_bot_predictions   — AI/bot prediction aggregation from prediction sites
-  get_historical_stats  — Historical team/player stats, recent form, game logs via ESPN
+  get_historical_stats  — Historical team/player stats, recent form, game logs
   get_standings         — Current standings, W/L records, playoff picture via ESPN
   research_and_analyze  — Multi-source structured research for any domain/topic
 
@@ -49,19 +50,46 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "browse_url",
+            "description": (
+                "Fetch and read the full text content of ANY URL on the web. "
+                "Use this to read a specific article, stats page, forum thread, "
+                "financial report, Wikipedia entry, odds site, or any other webpage. "
+                "Works on any website — not limited to sports. "
+                "Use search_web first to find relevant URLs, then browse_url to read them deeply."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full URL to fetch (must start with http:// or https://)",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "What you're looking for on this page — helps focus the extraction. E.g. 'player hitting stats', 'ATS record last 10 games', 'quarterly earnings'.",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_web",
             "description": (
-                "Search the live web for any sports betting information — "
-                "injuries, predictions, line analysis, expert picks, news, trends, "
-                "or anything else. Use this whenever you need current information "
-                "that might not be in your training data."
+                "Search the live web for any information — sports, finance, science, news, "
+                "research, or any other topic. Returns titles, snippets, and URLs from the top results. "
+                "Use this to find relevant pages, then use browse_url to read any of them in full. "
+                "Always prefer this over training data for anything current or factual."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query. Be specific — e.g. 'Lakers vs Warriors injury report tonight' or 'NFL Week 5 best bets experts'.",
+                        "description": "The search query. Be specific — e.g. 'Yankees ATS record last 10 games 2026' or 'NVDA earnings Q2 2026 results'.",
                     }
                 },
                 "required": ["query"],
@@ -326,6 +354,88 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 
 
 # ── Tool implementations ───────────────────────────────────────────────────────
+
+def browse_url(url: str, goal: str = "") -> str:
+    """
+    Fetch and extract readable text from any URL on the web.
+    Uses trafilatura for article extraction with BeautifulSoup fallback.
+    Works on any website — news, stats, forums, financial reports, Wikipedia, etc.
+    """
+    log.info(f"[agent_tools] browse_url: {url!r} goal={goal!r}")
+
+    if not url.startswith(("http://", "https://")):
+        return f"Invalid URL: {url!r} — must start with http:// or https://"
+
+    try:
+        r = httpx.get(url, headers=_HEADERS, timeout=15, follow_redirects=True)
+        if r.status_code != 200:
+            return f"HTTP {r.status_code} fetching {url}"
+
+        content_type = r.headers.get("content-type", "")
+
+        # ── JSON response — return formatted ──────────────────────────────
+        if "application/json" in content_type:
+            try:
+                return json.dumps(r.json(), indent=2)[:6000]
+            except Exception:
+                return r.text[:6000]
+
+        # ── HTML — extract readable text ──────────────────────────────────
+        raw_html = r.text
+
+        # Try trafilatura first (best for articles)
+        text: str | None = None
+        try:
+            import trafilatura
+            text = trafilatura.extract(
+                raw_html,
+                include_tables=True,
+                include_links=False,
+                no_fallback=False,
+            )
+        except Exception as exc:
+            log.debug(f"[agent_tools] trafilatura error: {exc}")
+
+        # BeautifulSoup fallback
+        if not text or len(text.strip()) < 100:
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(raw_html, "lxml")
+                # Remove noise tags
+                for tag in soup(["script", "style", "nav", "footer", "header",
+                                  "aside", "form", "button", "iframe", "noscript"]):
+                    tag.decompose()
+                # Prefer article/main content containers
+                main = (soup.find("article") or soup.find("main") or
+                        soup.find(id="content") or soup.find(class_="content") or
+                        soup.find(class_="article") or soup.body)
+                if main:
+                    text = main.get_text(separator="\n", strip=True)
+                else:
+                    text = soup.get_text(separator="\n", strip=True)
+                # Collapse blank lines
+                lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+                text = "\n".join(lines)
+            except Exception as exc:
+                log.debug(f"[agent_tools] BeautifulSoup error: {exc}")
+
+        if not text or len(text.strip()) < 50:
+            return f"Could not extract readable content from {url}"
+
+        # Trim to a useful but not overwhelming length (~6 000 chars)
+        trimmed = text.strip()[:6000]
+        if len(text.strip()) > 6000:
+            trimmed += "\n\n[... content truncated — use browse_url again with a more specific goal if you need more]"
+
+        goal_note = f" (looking for: {goal})" if goal else ""
+        return f"Content from {url}{goal_note}:\n\n{trimmed}"
+
+    except httpx.TimeoutException:
+        return f"Timeout fetching {url} — site too slow or blocked."
+    except Exception as exc:
+        log.warning(f"[agent_tools] browse_url error: {exc}")
+        return f"Could not fetch {url}: {exc}"
+
 
 def search_web(query: str) -> str:
     """
@@ -1443,6 +1553,7 @@ def research_and_analyze(topic: str, question: str) -> str:
 # ── Tool dispatcher ────────────────────────────────────────────────────────────
 
 TOOL_FUNCTIONS: dict[str, Any] = {
+    "browse_url":            browse_url,
     "search_web":            search_web,
     "get_live_odds":         get_live_odds,
     "get_injury_news":       get_injury_news,

@@ -37,6 +37,7 @@ python-dateutil==2.9.0     # Date/time parsing utilities
 beautifulsoup4==4.12.3
 lxml==5.2.2
 ddgs                       # Free live web search for the AI agent (replaces duckduckgo-search)
+trafilatura                # Best-in-class article/content extractor for any webpage
 
 # Testing
 pytest==8.3.2

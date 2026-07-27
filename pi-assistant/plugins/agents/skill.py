@@ -88,15 +88,17 @@ For analytical questions, output this reasoning chain:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Live tool selection:
-- PAST data / trends         → get_historical_stats (preferred over search_web for structured stats)
-- Current standings          → get_standings
-- Today's scores             → get_scores
-- Live odds / lines          → get_live_odds
-- Injuries / availability    → get_injury_news
-- Breaking news              → get_sports_news
-- Expert consensus           → get_expert_picks + get_bot_predictions
-- Non-sports research        → research_and_analyze
-- Everything else            → search_web
+- Read any specific webpage/site → browse_url (ANY website: odds pages, articles, Wikipedia, financial reports, forums)
+- Find relevant pages            → search_web → then browse_url to read them fully
+- PAST data / trends             → get_historical_stats (structured sports stats)
+- Current standings              → get_standings
+- Today's scores                 → get_scores
+- Live odds / lines              → get_live_odds
+- Injuries / availability        → get_injury_news
+- Breaking news                  → get_sports_news
+- Expert consensus               → get_expert_picks + get_bot_predictions
+- Deep research, any domain      → search_web → browse_url on top results
+- Non-sports structured research → research_and_analyze
 - Call only what the question needs. Run independent tools together, not sequentially.
 - NEVER state a team, player, game, or line that did not appear in a tool result this turn. Training data is stale — tools are truth.
 
@@ -159,15 +161,17 @@ Short factual questions skip the framework.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Live tool selection:
-- Historical stats / trends     → get_historical_stats (not search_web for structured sports data)
-- Current standings             → get_standings
-- Live scores / results         → get_scores
-- Live odds                     → get_live_odds
-- Injuries / lineup             → get_injury_news
-- Breaking news                 → get_sports_news
-- Expert / community sentiment  → get_expert_picks, get_reddit_picks, get_bot_predictions
-- Non-sports research           → research_and_analyze (multi-source synthesis)
-- Everything else / breaking    → search_web
+- Read any specific webpage/site → browse_url (ANY website: news articles, stats pages, Wikipedia, Reddit threads, financial reports — no restrictions)
+- Find relevant pages first      → search_web → then browse_url to read the best ones
+- Historical stats / trends      → get_historical_stats (structured sports data)
+- Current standings              → get_standings
+- Live scores / results          → get_scores
+- Live odds                      → get_live_odds
+- Injuries / lineup              → get_injury_news
+- Breaking news                  → get_sports_news
+- Expert / community sentiment   → get_expert_picks, get_reddit_picks, get_bot_predictions
+- Deep research, any domain      → search_web → browse_url on best results
+- Non-sports structured research → research_and_analyze
 - Don't over-tool — simple questions get simple answers.
 - NEVER mention a team, player, game, or stat that didn't come from a tool result this turn. Training data is wrong about live facts. Tools are always right.
 
@@ -232,16 +236,18 @@ Short factual questions skip the full framework.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Live tool usage — aggressive and intelligent:
-- PAST stats / trends            → get_historical_stats (not search_web for structured data)
-- Current standings              → get_standings
-- Live scores / box scores       → get_scores
-- Live odds / lines              → get_live_odds
-- Injury / lineup                → get_injury_news
-- Breaking news                  → get_sports_news
-- Expert / community / bot picks → get_expert_picks + get_bot_predictions + get_reddit_picks
-- Full sports analysis           → get_live_odds + get_scores + get_injury_news + get_historical_stats (together)
-- Non-sports research            → research_and_analyze
-- Fallback / breaking news       → search_web
+- Read any specific webpage/site  → browse_url (ANY site: odds pages, stats, Reddit, Wikipedia, news, financial reports, forums — no domain restrictions)
+- Find relevant pages first       → search_web → browse_url to read the best ones deeply
+- PAST stats / trends             → get_historical_stats (structured sports data)
+- Current standings               → get_standings
+- Live scores / box scores        → get_scores
+- Live odds / lines               → get_live_odds
+- Injury / lineup                 → get_injury_news
+- Breaking news                   → get_sports_news
+- Expert / community / bot picks  → get_expert_picks + get_bot_predictions + get_reddit_picks
+- Full sports analysis            → get_live_odds + get_scores + get_injury_news + get_historical_stats (together)
+- Deep research, any domain       → search_web → browse_url on the most relevant results
+- Non-sports structured research  → research_and_analyze
 - Batch independent tool calls — never wait when you can run together
 - If one tool fails, adapt — use others or search_web as fallback
 - NEVER mention a team, player, game, or line unless it appeared in a tool result this turn.
