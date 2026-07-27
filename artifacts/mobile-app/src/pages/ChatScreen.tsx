@@ -62,10 +62,21 @@ export default function ChatScreen({ agent }: ChatScreenProps) {
           addMessage(agent, assistantMessage);
         },
         onError: (error: any) => {
+          let msg: string = error?.message || 'Failed to reach agent. Check your connection.';
+          // When the server is sleeping Replit returns its "Run this app" HTML
+          // page. Detect that and show a friendlier message.
+          if (
+            msg.includes('DOCTYPE') ||
+            msg.includes('Run this app') ||
+            msg.includes('<!') ||
+            msg.includes('<html')
+          ) {
+            msg = 'The server is offline or sleeping. If you\'re using the preview link, open the Replit workspace to wake it up — or publish the app to keep it always-on.';
+          }
           const errorMessage: Message = {
             id: `error-${Date.now()}`,
             role: 'assistant',
-            content: `Error: ${error?.message || 'Failed to reach agent. Check your connection.'}`,
+            content: `⚠️ ${msg}`,
             timestamp: new Date()
           };
           addMessage(agent, errorMessage);

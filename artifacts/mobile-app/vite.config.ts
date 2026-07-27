@@ -72,6 +72,12 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    proxy: {
+      '/node-api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
