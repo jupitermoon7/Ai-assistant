@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/mobile-app/"
+title = "Pi Assistant Mobile"
+version = "1.0.0"
+id = "artifacts/mobile-app"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/mobile-app/" ]
+localPort = 22624
+
+[services.development]
+run = "pnpm --filter @workspace/mobile-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mobile-app", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mobile-app/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22624"
+BASE_PATH = "/mobile-app/"
