@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "jlVc3RLfwq7JTr9sHoV2_"
+uri = "file://pi-assistant/dashboard/static/img/cortona-avatar.png"
+type = "image"
+title = "Cortona"
+
+[[outputs]]
+id = "OWjViZZoB8L-E_bBUmTHp"
+uri = "file://pi-assistant/dashboard/static/img/data-avatar.png"
+type = "image"
+title = "Data"
+
+[[outputs]]
+id = "xSnrNyyq0FPjeyDDt952A"
+uri = "file://pi-assistant/dashboard/static/img/jarvis-avatar.png"
+type = "image"
+title = "Jarvis"
