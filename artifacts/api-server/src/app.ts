@@ -29,6 +29,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Standard path (direct calls)
 app.use("/api", router);
+// Replit proxy path — proxy forwards /node-api/* without stripping the prefix
+app.use("/node-api/api", router);
+// Health check at the path registered in artifact.toml startup config
+app.get("/node-api/healthz", (_req, res) => res.json({ status: "ok" }));
 
 export default app;
