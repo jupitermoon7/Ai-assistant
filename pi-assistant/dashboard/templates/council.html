@@ -264,6 +264,7 @@ const inputEl    = document.getElementById('q-input');
 const sendBtn    = document.getElementById('send-btn');
 const statusBar  = document.getElementById('status-bar');
 const emptyState = document.getElementById('empty-state');
+const csrfToken  = '{{ csrf_token() }}';
 
 function setStatus(msg, active = false) {
   statusBar.textContent = msg;
@@ -388,7 +389,7 @@ async function sendToCouncil() {
   try {
     const res  = await fetch('/api/chat/council', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
       body:    JSON.stringify({ message: question }),
     });
     const json = await res.json();
