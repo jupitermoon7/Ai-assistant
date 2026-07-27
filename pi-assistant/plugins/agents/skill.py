@@ -216,9 +216,9 @@ class AgentsPlugin(BasePlugin):
 
         # ── Task queue + worker ────────────────────────────────────────────────
         from core.task_queue import TaskQueue, TaskWorker
-        from pathlib import Path
+        from core.config import config
 
-        db_path = Path("pi-assistant/data/memory/tasks.db")
+        db_path = config.data_dir / "memory" / "tasks.db"
 
         self._task_queue = TaskQueue(db_path)
 
