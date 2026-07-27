@@ -244,6 +244,12 @@ class ConversationManager:
                 for call in result:
                     tool_name = call["name"]
                     tool_args = call["arguments"]
+                    # OpenAI returns arguments as a JSON-encoded string; parse it
+                    if isinstance(tool_args, str):
+                        try:
+                            tool_args = json.loads(tool_args)
+                        except json.JSONDecodeError:
+                            tool_args = {}
                     tools_used.append(tool_name)
 
                     log.info(f"[conversation] Tool call: {tool_name}({tool_args})")

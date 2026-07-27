@@ -95,7 +95,11 @@ def chat_data():
     message = body.get("message", "").strip()
     if not message:
         return _err("'message' is required")
-    result = assistant.execute_command("chat_data", message=message)
+    try:
+        result = assistant.execute_command("chat_data", message=message)
+    except Exception as exc:
+        log.exception("chat_data error")
+        return _err(str(exc), 500)
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
     return _ok(result)
@@ -112,7 +116,11 @@ def chat_cortona():
     message = body.get("message", "").strip()
     if not message:
         return _err("'message' is required")
-    result = assistant.execute_command("chat_cortona", message=message)
+    try:
+        result = assistant.execute_command("chat_cortona", message=message)
+    except Exception as exc:
+        log.exception("chat_cortona error")
+        return _err(str(exc), 500)
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
     return _ok(result)
@@ -129,7 +137,11 @@ def chat_jarvis():
     message = body.get("message", "").strip()
     if not message:
         return _err("'message' is required")
-    result = assistant.execute_command("chat_jarvis", message=message)
+    try:
+        result = assistant.execute_command("chat_jarvis", message=message)
+    except Exception as exc:
+        log.exception("chat_jarvis error")
+        return _err(str(exc), 500)
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
     return _ok(result)
@@ -153,7 +165,11 @@ def chat_council():
     message = body.get("message", "").strip()
     if not message:
         return _err("'message' is required")
-    result = assistant.execute_command("council", message=message)
+    try:
+        result = assistant.execute_command("council", message=message)
+    except Exception as exc:
+        log.exception("council error")
+        return _err(str(exc), 500)
     if isinstance(result, dict) and "error" in result:
         return _err(result["error"], 400)
     return _ok(result)
