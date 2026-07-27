@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/mobile-agents/"
+title = "Pi Agents"
+version = "1.0.0"
+id = "artifacts/mobile-agents"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/mobile-agents/" ]
+localPort = 22923
+
+[services.development]
+run = "pnpm --filter @workspace/mobile-agents run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mobile-agents", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/mobile-agents", "run", "serve" ]
+
+[services.env]
+PORT = "22923"
+BASE_PATH = "/mobile-agents/"
