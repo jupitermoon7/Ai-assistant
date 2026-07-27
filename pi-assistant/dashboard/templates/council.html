@@ -307,11 +307,21 @@ function skeletonHTML() {
           <div class="skeleton med"></div>`;
 }
 
+const AGENT_AVATARS = {
+  'card-data':    '/static/img/data-avatar.png',
+  'card-cortona': '/static/img/cortona-avatar.png',
+  'card-jarvis':  '/static/img/jarvis-avatar.png',
+};
+
 function agentCardHTML(cls, emoji, label, badge, bodyHTML) {
+  const avatarSrc = AGENT_AVATARS[cls];
+  const avatarEl = avatarSrc
+    ? `<img src="${avatarSrc}" alt="${label}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:8px;vertical-align:middle;">`
+    : `${emoji} `;
   return `
     <div class="agent-card ${cls}">
       <div class="agent-card-header">
-        ${emoji} ${label}
+        ${avatarEl}${label}
         ${badge ? `<span class="reaction-badge ${badge}">reacting</span>` : ''}
       </div>
       <div class="agent-card-body">${bodyHTML}</div>
