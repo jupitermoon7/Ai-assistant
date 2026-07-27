@@ -1128,51 +1128,100 @@ def get_historical_stats(
                 log.debug(f"[agent_tools] ESPN schedule fetch error: {exc}")
 
     elif entity_type == "player":
-        # Player stats via ESPN athlete endpoint
-        if entity_id:
+        # ── MLB: use the official MLB Stats API (most accurate) ────────────
+        if sport.lower() == "mlb":
             try:
-                stats_url = f"{base}/athletes/{entity_id}/statistics"
-                r = httpx.get(stats_url, headers=_HEADERS, timeout=12)
-                if r.status_code == 200:
-                    sdata = r.json()
-                    athlete_name = (
-                        sdata.get("athlete", {}).get("displayName", entity_name)
+                sr = httpx.get(
+                    "https://statsapi.mlb.com/api/v1/people/search",
+                    params={"names": entity_name, "sportId": 1},
+                    headers=_HEADERS, timeout=10,
+                )
+                mlb_id: str | None = None
+                found_name = entity_name
+                if sr.status_code == 200:
+                    people = sr.json().get("people", [])
+                    if people:
+                        mlb_id     = str(people[0]["id"])
+                        found_name = people[0].get("fullName", entity_name)
+
+                if mlb_id:
+                    if stat_type in ("season_stats",):
+                        pr = httpx.get(
+                            f"https://statsapi.mlb.com/api/v1/people/{mlb_id}/stats",
+                            params={"stats": "season", "season": "2026",
+                                    "group": "hitting,pitching"},
+                            headers=_HEADERS, timeout=12,
+                        )
+                        if pr.status_code == 200:
+                            results.append(f"**{found_name} — 2026 Season Stats (MLB)**")
+                            for sg in pr.json().get("stats", []):
+                                group   = sg.get("group", {}).get("displayName", "").title()
+                                splits  = sg.get("splits", [])
+                                if not splits:
+                                    continue
+                                stat_obj = splits[0].get("stat", {})
+                                results.append(f"\n  [{group}]")
+                                # Key stats only
+                                hitting_keys  = ["gamesPlayed","avg","homeRuns","rbi","runs",
+                                                  "hits","doubles","triples","stolenBases",
+                                                  "baseOnBalls","strikeOuts","obp","slg","ops"]
+                                pitching_keys = ["gamesPlayed","gamesStarted","wins","losses",
+                                                  "era","strikeOuts","baseOnBalls","whip",
+                                                  "inningsPitched","hits","homeRuns","saves"]
+                                keys = pitching_keys if group.lower() == "pitching" else hitting_keys
+                                for k in keys:
+                                    v = stat_obj.get(k)
+                                    if v not in (None, "", "-.--", ".---"):
+                                        results.append(f"    {k}: {v}")
+
+                    elif stat_type in ("game_log", "recent_form"):
+                        gl = httpx.get(
+                            f"https://statsapi.mlb.com/api/v1/people/{mlb_id}/stats",
+                            params={"stats": "gameLog", "season": "2026",
+                                    "group": "hitting"},
+                            headers=_HEADERS, timeout=12,
+                        )
+                        if gl.status_code == 200:
+                            results.append(f"**{found_name} — Recent Game Log (MLB, 2026)**")
+                            all_splits = []
+                            for sg in gl.json().get("stats", []):
+                                all_splits.extend(sg.get("splits", []))
+                            recent = all_splits[-10:] if stat_type == "recent_form" else all_splits[-20:]
+                            for sp in recent:
+                                date_str = sp.get("date", "")[:10]
+                                opp_obj  = sp.get("opponent", {})
+                                opp      = opp_obj.get("abbreviation", opp_obj.get("name", "?"))
+                                summary  = sp.get("stat", {}).get("summary", "")
+                                results.append(f"  {date_str}  vs {opp}:  {summary}")
+
+            except Exception as exc:
+                log.debug(f"[agent_tools] MLB Stats API error for {entity_name}: {exc}")
+
+        # ── Other sports: ESPN sports core API ────────────────────────────
+        if not results and entity_id:
+            try:
+                stats_url = (
+                    f"https://sports.core.api.espn.com/v2/sports/{sport_path}"
+                    f"/leagues/{league}/athletes/{entity_id}/statistics/0"
+                )
+                sr = httpx.get(stats_url, headers=_HEADERS, timeout=12)
+                if sr.status_code == 200:
+                    sdata = sr.json()
+                    results.append(
+                        f"**{entity_name} — {stat_type.replace('_', ' ').title()} ({sport.upper()})**"
                     )
-                    results.append(f"**{athlete_name} — {stat_type.replace('_', ' ').title()} ({sport.upper()})**")
-                    for category in sdata.get("statistics", {}).get("splits", {}).get("categories", [])[:4]:
-                        cat_name = category.get("displayName", "")
-                        stats_list = category.get("stats", [])[:8]
+                    for cat in sdata.get("splits", {}).get("categories", [])[:3]:
+                        cat_name  = cat.get("displayName", "")
+                        stat_list = cat.get("stats", cat.get("statistics", []))[:8]
                         if cat_name:
                             results.append(f"\n  [{cat_name}]")
-                        for stat in stats_list:
-                            name_s  = stat.get("displayName", stat.get("name", ""))
-                            value_s = stat.get("displayValue", str(stat.get("value", "")))
-                            if name_s:
-                                results.append(f"    {name_s}: {value_s}")
+                        for s in stat_list:
+                            n = s.get("displayName", s.get("name", ""))
+                            v = s.get("displayValue", str(s.get("value", "")))
+                            if n and v:
+                                results.append(f"    {n}: {v}")
             except Exception as exc:
-                log.debug(f"[agent_tools] ESPN athlete stats error: {exc}")
-
-        # Game log via gamelog endpoint
-        if not results and entity_id and stat_type in ("game_log", "recent_form"):
-            try:
-                gl_url = f"{base}/athletes/{entity_id}/gamelog"
-                r = httpx.get(gl_url, headers=_HEADERS, timeout=12)
-                if r.status_code == 200:
-                    gl_data = r.json()
-                    athlete_name = (
-                        gl_data.get("athlete", {}).get("displayName", entity_name)
-                    )
-                    results.append(f"**{athlete_name} — Game Log ({sport.upper()})**")
-                    events = gl_data.get("events", {})
-                    event_list = list(events.values())[:10]
-                    for ev_data in event_list:
-                        date_str  = ev_data.get("gameDate", "")[:10]
-                        opp       = ev_data.get("opponent", {}).get("displayName", "?")
-                        stats_arr = ev_data.get("stats", [])
-                        stat_str  = "  ".join(stats_arr[:6])
-                        results.append(f"  {date_str}  vs {opp}:  {stat_str}")
-            except Exception as exc:
-                log.debug(f"[agent_tools] ESPN gamelog error: {exc}")
+                log.debug(f"[agent_tools] ESPN core stats error for {entity_name}: {exc}")
 
     # ── Fallback: web search ───────────────────────────────────────────────
     if not results:
