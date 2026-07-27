@@ -35,7 +35,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     // Apply serverUrl to api-client
-    setBaseUrl(settings.serverUrl || null);
+    // Default to /node-api so calls reach the TypeScript API server, not the Pi Flask app.
+    // When the user sets a custom Pi URL, use that instead.
+    setBaseUrl(settings.serverUrl || '/node-api');
   }, [settings]);
 
   const updateSettings = (newSettings: Partial<Settings>) => {
