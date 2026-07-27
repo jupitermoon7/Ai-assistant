@@ -13,6 +13,9 @@ Tools available
   get_reddit_picks      — Community picks & bot posts from Reddit betting subs
   get_expert_picks      — Expert picks from Covers.com + Action Network experts
   get_bot_predictions   — AI/bot prediction aggregation from prediction sites
+  get_historical_stats  — Historical team/player stats, recent form, game logs via ESPN
+  get_standings         — Current standings, W/L records, playoff picture via ESPN
+  research_and_analyze  — Multi-source structured research for any domain/topic
 
 Each tool function takes plain Python args and returns a plain string.
 The agent loop in conversation.py handles dispatching and result injection.
@@ -218,6 +221,104 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     }
                 },
                 "required": ["sport"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_historical_stats",
+            "description": (
+                "Retrieve historical performance data for a team or player from ESPN's API. "
+                "Use this for PAST data: recent form (last 5-10 games), season stats, game logs, "
+                "home/away splits, ATS (against the spread) records, and trend analysis. "
+                "Prefer this over search_web when you need structured historical stats. "
+                "Use search_web instead for breaking news or real-time updates."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport code: nfl, nba, mlb, nhl",
+                        "enum": ["nfl", "nba", "mlb", "nhl"],
+                    },
+                    "entity_type": {
+                        "type": "string",
+                        "description": "Whether you are looking up a team or a player.",
+                        "enum": ["team", "player"],
+                    },
+                    "entity_name": {
+                        "type": "string",
+                        "description": "Full or common name of the team (e.g. 'Los Angeles Lakers', 'Chiefs') or player (e.g. 'LeBron James', 'Patrick Mahomes').",
+                    },
+                    "stat_type": {
+                        "type": "string",
+                        "description": (
+                            "What kind of historical data to retrieve: "
+                            "'recent_form' = last 5-10 game results and performance trend; "
+                            "'season_stats' = full season statistics summary; "
+                            "'game_log' = per-game results for the current season; "
+                            "'splits' = home/away/conference/division splits."
+                        ),
+                        "enum": ["recent_form", "season_stats", "game_log", "splits"],
+                    },
+                },
+                "required": ["sport", "entity_type", "entity_name", "stat_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_standings",
+            "description": (
+                "Get current league standings including W/L record, win percentage, streak, "
+                "home/away record, and playoff positioning. Use for any question about where "
+                "a team sits in the standings, playoff races, or league rankings."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport code: nfl, nba, mlb, nhl",
+                        "enum": ["nfl", "nba", "mlb", "nhl"],
+                    },
+                    "conference": {
+                        "type": "string",
+                        "description": "Optional filter: 'east', 'west', 'afc', 'nfc', or leave empty for full standings.",
+                    },
+                },
+                "required": ["sport"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research_and_analyze",
+            "description": (
+                "General-purpose structured research tool for ANY domain — science, math, finance, "
+                "medicine, technology, personal decisions, current events, and more. "
+                "Runs multiple targeted web searches, synthesises the results, and returns a "
+                "structured brief: what is known, what is uncertain, key factors, and a "
+                "confidence-weighted summary. Use for non-sports topics or when you need "
+                "multi-source evidence synthesis rather than a single search."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "The subject area or domain (e.g. 'personal finance', 'quantum computing', 'intermittent fasting').",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "The specific question to answer or decision to inform (e.g. 'Is a 15-year vs 30-year mortgage better for me?').",
+                    },
+                },
+                "required": ["topic", "question"],
             },
         },
     },
@@ -863,17 +964,447 @@ def get_scores(sport: str) -> str:
         return f"Could not fetch {sport.upper()} scores: {exc}"
 
 
+def get_historical_stats(
+    sport: str,
+    entity_type: str,
+    entity_name: str,
+    stat_type: str,
+) -> str:
+    """
+    Retrieve historical stats for a team or player via ESPN's public API.
+    Covers NFL, NBA, MLB, NHL — recent form, season stats, game logs, splits.
+    """
+    log.info(f"[agent_tools] get_historical_stats: {sport}/{entity_type}/{entity_name}/{stat_type}")
+
+    sport_map = {
+        "nfl": ("football",   "nfl"),
+        "nba": ("basketball", "nba"),
+        "mlb": ("baseball",   "mlb"),
+        "nhl": ("hockey",     "nhl"),
+    }
+    sport_path, league = sport_map.get(sport.lower(), ("basketball", "nba"))
+    base = f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/{league}"
+
+    results: list[str] = []
+    entity_id: str | None = None
+
+    # ── Step 1: Find the entity ID via ESPN search ─────────────────────────
+    try:
+        search_url = f"https://site.api.espn.com/apis/common/v3/search"
+        r = httpx.get(
+            search_url,
+            params={"query": entity_name, "limit": 5, "sport": sport.lower()},
+            headers=_HEADERS,
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            for result_group in data.get("results", []):
+                for item in result_group.get("contents", []):
+                    item_type = item.get("type", "")
+                    if entity_type == "team" and item_type in ("team", "franchise"):
+                        entity_id = str(item.get("id", ""))
+                        break
+                    elif entity_type == "player" and item_type in ("player", "athlete"):
+                        entity_id = str(item.get("id", ""))
+                        break
+                if entity_id:
+                    break
+    except Exception as exc:
+        log.debug(f"[agent_tools] ESPN search error for {entity_name}: {exc}")
+
+    # ── Step 2: Fetch stats based on entity type and stat_type ────────────
+    if entity_type == "team":
+        # Try to get team schedule/results for recent_form and game_log
+        team_url = f"{base}/teams"
+        try:
+            r = httpx.get(team_url, headers=_HEADERS, timeout=10)
+            if r.status_code == 200:
+                teams = r.json().get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+                for t in teams:
+                    team_data = t.get("team", {})
+                    name_check = team_data.get("displayName", "").lower()
+                    short_check = team_data.get("shortDisplayName", "").lower()
+                    abbr_check  = team_data.get("abbreviation", "").lower()
+                    search_lower = entity_name.lower()
+                    if (search_lower in name_check or search_lower in short_check
+                            or abbr_check in search_lower or search_lower in abbr_check):
+                        entity_id = str(team_data.get("id", ""))
+                        break
+        except Exception as exc:
+            log.debug(f"[agent_tools] ESPN teams list error: {exc}")
+
+        if entity_id:
+            try:
+                sched_url = f"{base}/teams/{entity_id}/schedule"
+                r = httpx.get(sched_url, headers=_HEADERS, timeout=12)
+                if r.status_code == 200:
+                    sched_data = r.json()
+                    team_name = (
+                        sched_data.get("team", {}).get("displayName", entity_name)
+                    )
+                    events = sched_data.get("events", [])
+                    completed = [e for e in events if e.get("competitions", [{}])[0]
+                                 .get("status", {}).get("type", {}).get("completed", False)]
+
+                    if stat_type in ("recent_form", "game_log"):
+                        game_slice = completed[-10:] if stat_type == "recent_form" else completed
+                        results.append(f"**{team_name} — {stat_type.replace('_', ' ').title()} ({sport.upper()})**")
+                        wins = losses = 0
+                        home_w = home_l = away_w = away_l = 0
+                        for ev in game_slice:
+                            comp = ev.get("competitions", [{}])[0]
+                            comps = comp.get("competitors", [])
+                            our_team = next(
+                                (c for c in comps if str(c.get("id", "")) == entity_id),
+                                None,
+                            )
+                            opp_team = next(
+                                (c for c in comps if str(c.get("id", "")) != entity_id),
+                                None,
+                            )
+                            if not our_team or not opp_team:
+                                continue
+                            our_score  = our_team.get("score", {}).get("value", "?")
+                            opp_score  = opp_team.get("score", {}).get("value", "?")
+                            opp_name   = opp_team.get("team", {}).get("shortDisplayName", "Opp")
+                            home_away  = "vs" if our_team.get("homeAway") == "home" else "@"
+                            won        = our_team.get("winner", False)
+                            wl         = "W" if won else "L"
+                            date_str   = ev.get("date", "")[:10]
+                            if won:
+                                wins += 1
+                                if our_team.get("homeAway") == "home": home_w += 1
+                                else: away_w += 1
+                            else:
+                                losses += 1
+                                if our_team.get("homeAway") == "home": home_l += 1
+                                else: away_l += 1
+                            results.append(
+                                f"  {date_str}  {wl}  {home_away} {opp_name}  "
+                                f"{our_score}-{opp_score}"
+                            )
+                        if stat_type == "recent_form":
+                            results.insert(
+                                1,
+                                f"  Record (last {len(game_slice)}): {wins}-{losses}  |  "
+                                f"Home: {home_w}-{home_l}  Away: {away_w}-{away_l}",
+                            )
+
+                    elif stat_type == "splits":
+                        results.append(f"**{team_name} — Home/Away Splits ({sport.upper()})**")
+                        home_w = home_l = away_w = away_l = 0
+                        for ev in completed:
+                            comp  = ev.get("competitions", [{}])[0]
+                            comps = comp.get("competitors", [])
+                            our   = next((c for c in comps if str(c.get("id", "")) == entity_id), None)
+                            if not our: continue
+                            won = our.get("winner", False)
+                            if our.get("homeAway") == "home":
+                                if won: home_w += 1
+                                else:   home_l += 1
+                            else:
+                                if won: away_w += 1
+                                else:   away_l += 1
+                        total = home_w + home_l + away_w + away_l
+                        results.append(
+                            f"  Overall: {home_w+away_w}-{home_l+away_l} ({total} games)\n"
+                            f"  Home:    {home_w}-{home_l}\n"
+                            f"  Away:    {away_w}-{away_l}"
+                        )
+
+                    elif stat_type == "season_stats":
+                        # Season stats from team record
+                        record_obj = sched_data.get("team", {}).get("record", {})
+                        items_list = record_obj.get("items", [])
+                        results.append(f"**{team_name} — Season Stats ({sport.upper()})**")
+                        for record_item in items_list[:4]:
+                            desc = record_item.get("description", "")
+                            summary = record_item.get("summary", "")
+                            if desc or summary:
+                                results.append(f"  {desc}: {summary}")
+
+            except Exception as exc:
+                log.debug(f"[agent_tools] ESPN schedule fetch error: {exc}")
+
+    elif entity_type == "player":
+        # Player stats via ESPN athlete endpoint
+        if entity_id:
+            try:
+                stats_url = f"{base}/athletes/{entity_id}/statistics"
+                r = httpx.get(stats_url, headers=_HEADERS, timeout=12)
+                if r.status_code == 200:
+                    sdata = r.json()
+                    athlete_name = (
+                        sdata.get("athlete", {}).get("displayName", entity_name)
+                    )
+                    results.append(f"**{athlete_name} — {stat_type.replace('_', ' ').title()} ({sport.upper()})**")
+                    for category in sdata.get("statistics", {}).get("splits", {}).get("categories", [])[:4]:
+                        cat_name = category.get("displayName", "")
+                        stats_list = category.get("stats", [])[:8]
+                        if cat_name:
+                            results.append(f"\n  [{cat_name}]")
+                        for stat in stats_list:
+                            name_s  = stat.get("displayName", stat.get("name", ""))
+                            value_s = stat.get("displayValue", str(stat.get("value", "")))
+                            if name_s:
+                                results.append(f"    {name_s}: {value_s}")
+            except Exception as exc:
+                log.debug(f"[agent_tools] ESPN athlete stats error: {exc}")
+
+        # Game log via gamelog endpoint
+        if not results and entity_id and stat_type in ("game_log", "recent_form"):
+            try:
+                gl_url = f"{base}/athletes/{entity_id}/gamelog"
+                r = httpx.get(gl_url, headers=_HEADERS, timeout=12)
+                if r.status_code == 200:
+                    gl_data = r.json()
+                    athlete_name = (
+                        gl_data.get("athlete", {}).get("displayName", entity_name)
+                    )
+                    results.append(f"**{athlete_name} — Game Log ({sport.upper()})**")
+                    events = gl_data.get("events", {})
+                    event_list = list(events.values())[:10]
+                    for ev_data in event_list:
+                        date_str  = ev_data.get("gameDate", "")[:10]
+                        opp       = ev_data.get("opponent", {}).get("displayName", "?")
+                        stats_arr = ev_data.get("stats", [])
+                        stat_str  = "  ".join(stats_arr[:6])
+                        results.append(f"  {date_str}  vs {opp}:  {stat_str}")
+            except Exception as exc:
+                log.debug(f"[agent_tools] ESPN gamelog error: {exc}")
+
+    # ── Fallback: web search ───────────────────────────────────────────────
+    if not results:
+        log.info(f"[agent_tools] ESPN historical stats fallback to web search for {entity_name}")
+        query = f"{entity_name} {sport.upper()} {stat_type.replace('_', ' ')} stats 2024 2025"
+        return search_web(query)
+
+    return "\n".join(results)
+
+
+def get_standings(sport: str, conference: str = "") -> str:
+    """
+    Fetch current league standings from ESPN's public API.
+    Returns W/L, win %, streak, home/away record, and playoff positioning.
+    """
+    log.info(f"[agent_tools] get_standings: {sport} conference={conference!r}")
+
+    sport_map = {
+        "nfl": ("football",   "nfl"),
+        "nba": ("basketball", "nba"),
+        "mlb": ("baseball",   "mlb"),
+        "nhl": ("hockey",     "nhl"),
+    }
+    sport_path, league = sport_map.get(sport.lower(), ("basketball", "nba"))
+
+    try:
+        url = (
+            f"https://site.api.espn.com/apis/v2/sports/{sport_path}/{league}/standings"
+        )
+        r = httpx.get(url, headers=_HEADERS, timeout=12, follow_redirects=True)
+        if r.status_code != 200:
+            # Try alternate standings URL
+            url2 = (
+                f"https://site.web.api.espn.com/apis/v2/sports/{sport_path}/{league}/standings"
+            )
+            r = httpx.get(url2, headers=_HEADERS, timeout=12, follow_redirects=True)
+
+        if r.status_code != 200:
+            raise ValueError(f"HTTP {r.status_code}")
+
+        data = r.json()
+        lines: list[str] = [
+            f"**{sport.upper()} Standings ({datetime.now(timezone.utc).strftime('%b %d %Y')})**"
+        ]
+
+        # ESPN standings structure varies by sport
+        children = data.get("children", []) or data.get("standings", {}).get("entries", [])
+
+        if not children:
+            # Try flat entries
+            entries = data.get("standings", {}).get("entries", [])
+            if entries:
+                children = [{"name": sport.upper(), "standings": {"entries": entries}}]
+
+        conf_filter = conference.lower().strip() if conference else ""
+
+        for group in children:
+            group_name = group.get("name", "") or group.get("abbreviation", "")
+
+            # Apply conference filter
+            if conf_filter:
+                gn_lower = group_name.lower()
+                if conf_filter not in gn_lower:
+                    # Check abbreviation
+                    if conf_filter not in group.get("abbreviation", "").lower():
+                        continue
+
+            lines.append(f"\n**{group_name}**")
+
+            # Some groups have sub-groups (e.g. divisions within conference)
+            sub_children = group.get("children", [])
+            entry_sources = sub_children if sub_children else [group]
+
+            for sub in entry_sources:
+                sub_name = sub.get("name", "")
+                if sub_name and sub_name != group_name:
+                    lines.append(f"  [{sub_name}]")
+                entries = (
+                    sub.get("standings", {}).get("entries", [])
+                    or sub.get("entries", [])
+                )
+                for entry in entries:
+                    team = entry.get("team", {})
+                    team_name = team.get("shortDisplayName", team.get("displayName", "?"))
+                    stats_raw = entry.get("stats", [])
+                    stat_map: dict[str, str] = {}
+                    for s in stats_raw:
+                        k = s.get("name", s.get("abbreviation", ""))
+                        v = s.get("displayValue", str(s.get("value", "")))
+                        stat_map[k] = v
+
+                    # Build a readable line with common stats
+                    w   = stat_map.get("wins",       stat_map.get("W",   "?"))
+                    l   = stat_map.get("losses",     stat_map.get("L",   "?"))
+                    pct = stat_map.get("winPercent", stat_map.get("PCT", ""))
+                    str_ = stat_map.get("streak",    stat_map.get("streakCode", ""))
+                    gb  = stat_map.get("gamesBehind", stat_map.get("GB", ""))
+                    hw  = stat_map.get("homeWins",   "")
+                    hl  = stat_map.get("homeLosses", "")
+                    aw  = stat_map.get("awayWins",   "")
+                    al  = stat_map.get("awayLosses", "")
+                    playoff = stat_map.get("playoffSeed", stat_map.get("seed", ""))
+
+                    parts = [f"  {team_name:<22} {w}-{l}"]
+                    if pct:     parts.append(f"  .{pct}" if not pct.startswith(".") else f"  {pct}")
+                    if gb:      parts.append(f"  GB: {gb}")
+                    if str_:    parts.append(f"  Streak: {str_}")
+                    if hw and hl: parts.append(f"  Home: {hw}-{hl}")
+                    if aw and al: parts.append(f"  Away: {aw}-{al}")
+                    if playoff: parts.append(f"  #{playoff}")
+                    lines.append("".join(parts))
+
+        if len(lines) <= 1:
+            # Fallback to web search
+            query = f"{sport.upper()} standings {conference} current season"
+            return search_web(query)
+
+        return "\n".join(lines)
+
+    except Exception as exc:
+        log.warning(f"[agent_tools] get_standings error: {exc}")
+        query = f"{sport.upper()} standings {conference} current season"
+        return search_web(query)
+
+
+def research_and_analyze(topic: str, question: str) -> str:
+    """
+    Multi-source structured research for any domain.
+    Runs 3 targeted DuckDuckGo searches, synthesises the results, and
+    returns a structured brief: what is known, uncertainties, key factors,
+    and a confidence-weighted summary.
+    """
+    log.info(f"[agent_tools] research_and_analyze: topic={topic!r} question={question!r}")
+
+    # Build three targeted queries from different angles
+    queries = [
+        f"{question} {topic}",
+        f"{topic} evidence research data analysis",
+        f"{question} pros cons factors consider",
+    ]
+
+    all_results: list[str] = []
+
+    for q in queries:
+        try:
+            from ddgs import DDGS
+            with DDGS() as ddgs:
+                for hit in ddgs.text(q, max_results=4):
+                    title  = hit.get("title", "").strip()
+                    body   = hit.get("body", "").strip()[:400]
+                    source = hit.get("href", "").split("/")[2] if "/" in hit.get("href", "") else ""
+                    if title:
+                        all_results.append(f"[{source}] {title}: {body}")
+        except ImportError:
+            # Fallback to DuckDuckGo instant API
+            try:
+                r = httpx.get(
+                    "https://api.duckduckgo.com/",
+                    params={"q": q, "format": "json", "no_html": "1"},
+                    headers=_HEADERS,
+                    timeout=10,
+                    follow_redirects=True,
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    abstract = (d.get("AbstractText") or "").strip()
+                    if abstract:
+                        all_results.append(f"[DuckDuckGo] {abstract}")
+                    for item in (d.get("RelatedTopics") or [])[:3]:
+                        t = (item.get("Text") or "").strip()
+                        if t:
+                            all_results.append(f"• {t}")
+            except Exception as exc:
+                log.debug(f"[agent_tools] research DDG instant error: {exc}")
+        except Exception as exc:
+            log.debug(f"[agent_tools] research DDG search error for {q!r}: {exc}")
+
+    if not all_results:
+        return (
+            f"No research results found for topic '{topic}' / question '{question}'. "
+            "Try search_web with a more specific query."
+        )
+
+    # Deduplicate
+    seen: set[str] = set()
+    unique_results: list[str] = []
+    for item in all_results:
+        key = item[:80]
+        if key not in seen:
+            seen.add(key)
+            unique_results.append(item)
+
+    # Build structured brief
+    now_str = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
+    header = (
+        f"**Research Brief: {topic}**\n"
+        f"**Question:** {question}\n"
+        f"**Sources gathered:** {len(unique_results)}  |  {now_str}\n"
+    )
+
+    evidence_block = "\n**Evidence from sources:**\n" + "\n".join(
+        f"  {i+1}. {r}" for i, r in enumerate(unique_results[:10])
+    )
+
+    guidance = (
+        "\n\n**Instructions for the agent synthesising this:**\n"
+        "Using only the evidence above, produce a structured analysis with:\n"
+        "  • What is known / well-established\n"
+        "  • What is uncertain or contested\n"
+        "  • Key factors relevant to the question\n"
+        "  • Confidence level (low / medium / high) with explicit reasoning\n"
+        "  • Concrete recommendation or answer\n"
+        "Do NOT add facts from training data that are not in the evidence above."
+    )
+
+    return header + evidence_block + guidance
+
+
 # ── Tool dispatcher ────────────────────────────────────────────────────────────
 
 TOOL_FUNCTIONS: dict[str, Any] = {
-    "search_web":          search_web,
-    "get_live_odds":       get_live_odds,
-    "get_injury_news":     get_injury_news,
-    "get_sports_news":     get_sports_news,
-    "get_reddit_picks":    get_reddit_picks,
-    "get_expert_picks":    get_expert_picks,
-    "get_bot_predictions": get_bot_predictions,
-    "get_scores":          get_scores,
+    "search_web":            search_web,
+    "get_live_odds":         get_live_odds,
+    "get_injury_news":       get_injury_news,
+    "get_sports_news":       get_sports_news,
+    "get_reddit_picks":      get_reddit_picks,
+    "get_expert_picks":      get_expert_picks,
+    "get_bot_predictions":   get_bot_predictions,
+    "get_scores":            get_scores,
+    "get_historical_stats":  get_historical_stats,
+    "get_standings":         get_standings,
+    "research_and_analyze":  research_and_analyze,
 }
 
 
