@@ -411,6 +411,8 @@ function renderMarkdown(text) {
     .replace(/^[•\-] (.+)$/gm, '<div style="padding-left:12px">• $1</div>')
     // Inline code
     .replace(/`(.+?)`/g, '<code>$1</code>')
+    // Clickable URLs
+    .replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--agent-color);text-decoration:underline;word-break:break-all">$1</a>')
     // Line breaks
     .replace(/\n/g, '<br>');
 }
