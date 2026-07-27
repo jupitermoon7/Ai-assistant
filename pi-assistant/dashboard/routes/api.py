@@ -159,6 +159,109 @@ def chat_council():
     return _ok(result)
 
 
+# ── Task queue ────────────────────────────────────────────────────────────────
+
+@api_bp.route("/tasks", methods=["GET"])
+@login_required
+def get_tasks():
+    """List all tasks with counts."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("list_tasks", limit=int(request.args.get("limit", 100)))
+    return _ok(result)
+
+
+@api_bp.route("/tasks", methods=["POST"])
+@login_required
+def create_task():
+    """
+    Queue a new task for an agent.
+
+    Body: { "agent": "jarvis", "description": "...", "title": "...", "priority": 5, "notify": true }
+    """
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    body = request.get_json(silent=True) or {}
+    if not body.get("agent"):
+        return _err("'agent' is required")
+    if not body.get("description"):
+        return _err("'description' is required")
+    result = assistant.execute_command(
+        "queue_task",
+        agent       = body["agent"],
+        description = body["description"],
+        title       = body.get("title", ""),
+        priority    = int(body.get("priority", 5)),
+        notify      = bool(body.get("notify", True)),
+    )
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"])
+    return _ok(result)
+
+
+@api_bp.route("/tasks/<task_id>", methods=["GET"])
+@login_required
+def get_task(task_id: str):
+    """Get a single task by ID, including its full result."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("task_result", task_id=task_id)
+    if isinstance(result, dict) and "error" in result:
+        return _err(result["error"], 404)
+    return _ok(result)
+
+
+@api_bp.route("/tasks/<task_id>/cancel", methods=["POST"])
+@login_required
+def cancel_task(task_id: str):
+    """Cancel a pending task."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("cancel_task", task_id=task_id)
+    return _ok(result)
+
+
+@api_bp.route("/tasks/<task_id>", methods=["DELETE"])
+@login_required
+def delete_task(task_id: str):
+    """Delete a task entirely."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    # Access queue directly via the agents plugin
+    agents_plugin = assistant.plugins._plugins.get("agents")
+    if not agents_plugin:
+        return _err("Agents plugin not loaded", 503)
+    ok = agents_plugin._task_queue.delete(task_id)
+    return _ok({"deleted": ok, "task_id": task_id})
+
+
+@api_bp.route("/tasks/clear", methods=["POST"])
+@login_required
+def clear_tasks():
+    """Clear all completed/failed/cancelled tasks."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("clear_tasks")
+    return _ok(result)
+
+
+@api_bp.route("/tasks/status", methods=["GET"])
+@login_required
+def tasks_status():
+    """Worker health + counts."""
+    assistant = _get_assistant()
+    if not assistant:
+        return _err("Assistant not initialised", 503)
+    result = assistant.execute_command("tasks_status")
+    return _ok(result)
+
+
 # ── Conversation history ───────────────────────────────────────────────────────
 
 @api_bp.route("/history")

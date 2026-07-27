@@ -1,0 +1,752 @@
+{% extends "base.html" %}
+{% block title %}Tasks — Pi Assistant{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --orange: #f97316;
+    --orange-dim: rgba(249,115,22,.12);
+  }
+
+  .tasks-wrap {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 56px);
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .tasks-header {
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .tasks-header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--orange);
+    margin: 0;
+  }
+  .tasks-header p {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 2px 0 0;
+  }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  /* ── Counts bar ── */
+  .counts-bar {
+    display: flex;
+    gap: 12px;
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .count-pill {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .pill-pending   { background: rgba(251,191, 36,.15); color: #fbbf24; }
+  .pill-running   { background: rgba(  99,102,241,.15); color: #818cf8; }
+  .pill-completed { background: rgba( 52,211,153,.15); color: #34d399; }
+  .pill-failed    { background: rgba(248, 113,113,.15); color: #f87171; }
+  .pill-worker    { background: var(--bg-secondary); color: var(--text-dim); }
+
+  /* ── Body: two panes ── */
+  .tasks-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* ── Queue pane ── */
+  .queue-pane {
+    width: 380px;
+    min-width: 260px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .queue-pane-header {
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .queue-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ── Task card ── */
+  .task-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    position: relative;
+  }
+  .task-card:hover { border-color: var(--orange); background: var(--orange-dim); }
+  .task-card.selected { border-color: var(--orange); background: var(--orange-dim); }
+
+  .task-card-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .task-agent-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    letter-spacing: .4px;
+    flex-shrink: 0;
+  }
+  .badge-data    { background: rgba(56,189,248,.15);  color: #38bdf8; }
+  .badge-cortona { background: rgba(167,139,250,.15); color: #a78bfa; }
+  .badge-jarvis  { background: rgba(52,211,153,.15);  color: #34d399; }
+  .badge-council { background: rgba(255,215,  0,.15); color: gold; }
+
+  .task-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .task-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .task-status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-pending   { background: #fbbf24; }
+  .dot-running   { background: #818cf8; animation: pulse 1.2s infinite; }
+  .dot-completed { background: #34d399; }
+  .dot-failed    { background: #f87171; }
+  .dot-cancelled { background: var(--text-dim); }
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:.3; }
+  }
+
+  .task-cancel-btn {
+    font-size: 11px;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-left: auto;
+  }
+  .task-cancel-btn:hover { color: #f87171; background: rgba(248,113,113,.1); }
+
+  /* ── Priority indicator ── */
+  .priority-bar {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 8px 0 0 8px;
+  }
+  .p1 { background: #f87171; }
+  .p2 { background: #fb923c; }
+  .p3 { background: #fbbf24; }
+  .p4,.p5 { background: #60a5fa; }
+  .p6,.p7,.p8,.p9,.p10 { background: var(--border); }
+
+  /* ── Detail pane ── */
+  .detail-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .detail-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .detail-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: none;
+  }
+  .detail-content.visible { display: block; }
+  .detail-agent-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .detail-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+  }
+  .detail-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-result {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .detail-result strong { font-weight: 700; }
+  .detail-result em { font-style: italic; color: var(--text-dim); }
+  .detail-result h1, .detail-result h2, .detail-result h3 {
+    font-weight: 700;
+    margin: 16px 0 6px;
+    color: var(--text-primary);
+  }
+  .detail-error {
+    font-size: 13px;
+    color: #f87171;
+    background: rgba(248,113,113,.08);
+    border: 1px solid rgba(248,113,113,.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .detail-running-msg {
+    font-size: 14px;
+    color: #818cf8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(129,140,248,.3);
+    border-top-color: #818cf8;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── New task form ── */
+  .new-task-panel {
+    border-top: 1px solid var(--border);
+    padding: 16px 24px 20px;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+  }
+  .new-task-panel h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 12px;
+  }
+  .form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .form-select, .form-input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    transition: border-color .15s;
+  }
+  .form-select:focus, .form-input:focus {
+    outline: none;
+    border-color: var(--orange);
+  }
+  .form-select { width: 130px; }
+  .form-input  { width: 80px; }
+  .task-desc-input {
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: none;
+    min-height: 62px;
+    max-height: 120px;
+    transition: border-color .15s;
+    overflow-y: auto;
+  }
+  .task-desc-input:focus { outline: none; border-color: var(--orange); }
+  .submit-btn {
+    padding: 9px 20px;
+    border-radius: 8px;
+    border: none;
+    background: var(--orange);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .submit-btn:hover { opacity: .85; }
+  .submit-btn:disabled { opacity: .4; cursor: default; }
+  .clear-btn {
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .clear-btn:hover { color: #f87171; border-color: rgba(248,113,113,.4); }
+
+  /* ── Quick-add chips ── */
+  .quick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .qchip {
+    padding: 5px 10px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-dim);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    white-space: nowrap;
+  }
+  .qchip:hover { background: var(--orange-dim); color: var(--orange); border-color: var(--orange); }
+
+  @media (max-width: 700px) {
+    .queue-pane { width: 100%; border-right: none; border-bottom: 1px solid var(--border); max-height: 280px; }
+    .tasks-body { flex-direction: column; }
+  }
+</style>
+
+<div class="tasks-wrap">
+
+  <!-- Header -->
+  <div class="tasks-header">
+    <div>
+      <h1>📋 Task Queue</h1>
+      <p>Assign tasks to agents. They work through the queue independently — even while you sleep.</p>
+    </div>
+    <div class="header-actions">
+      <span id="worker-status" class="count-pill pill-worker">⚙ worker</span>
+      <button class="clear-btn" onclick="clearCompleted()">Clear done</button>
+    </div>
+  </div>
+
+  <!-- Counts -->
+  <div class="counts-bar" id="counts-bar">
+    <span class="count-pill pill-pending"   id="cnt-pending">   ● 0 pending</span>
+    <span class="count-pill pill-running"   id="cnt-running">   ● 0 running</span>
+    <span class="count-pill pill-completed" id="cnt-completed"> ✓ 0 done</span>
+    <span class="count-pill pill-failed"    id="cnt-failed">    ✕ 0 failed</span>
+  </div>
+
+  <!-- Body -->
+  <div class="tasks-body">
+
+    <!-- Queue pane -->
+    <div class="queue-pane">
+      <div class="queue-pane-header">
+        <span>Queue</span>
+        <span id="queue-updated" style="font-weight:400"></span>
+      </div>
+      <div class="queue-list" id="queue-list">
+        <div id="queue-empty" style="color:var(--text-dim);font-size:13px;text-align:center;padding:30px 16px;">
+          No tasks yet — add one below.
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail pane -->
+    <div class="detail-pane">
+      <div class="detail-empty" id="detail-empty">Select a task to see details</div>
+      <div class="detail-content" id="detail-content"></div>
+    </div>
+
+  </div>
+
+  <!-- New task form -->
+  <div class="new-task-panel">
+    <div class="quick-chips">
+      <div class="qchip" onclick="quickAdd('jarvis','Tonight\'s best bet — full research and recommendation')">🎯 Best bet tonight → Jarvis</div>
+      <div class="qchip" onclick="quickAdd('data','Pull tonight\'s full injury report and key line movements')">📊 Injury + lines → Data</div>
+      <div class="qchip" onclick="quickAdd('cortona','Find the best personal loan rates available right now and compare top lenders')">💰 Loan rates → Cortona</div>
+      <div class="qchip" onclick="quickAdd('council','Debate tonight\'s biggest game — should I bet it, and if so, what side?')">⚡ Game debate → Council</div>
+      <div class="qchip" onclick="quickAdd('jarvis','Give me a full daily intelligence brief — sports, news, betting, anything relevant for today')">📋 Daily brief → Jarvis</div>
+    </div>
+    <textarea class="task-desc-input" id="task-desc"
+              placeholder="Describe the task for the agent…"
+              oninput="autosizeTA(this)" rows="2"></textarea>
+    <div class="form-row" style="margin-top:8px">
+      <select class="form-select" id="task-agent">
+        <option value="jarvis">🤖 Jarvis</option>
+        <option value="data">📊 Data</option>
+        <option value="cortona">🔮 Cortona</option>
+        <option value="council">⚡ Council</option>
+      </select>
+      <select class="form-input" id="task-priority" title="Priority (1=urgent, 5=normal, 10=low)">
+        <option value="1">P1 — urgent</option>
+        <option value="2">P2 — high</option>
+        <option value="3">P3</option>
+        <option value="4">P4</option>
+        <option value="5" selected>P5 — normal</option>
+        <option value="7">P7 — low</option>
+        <option value="10">P10 — background</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-dim);cursor:pointer;">
+        <input type="checkbox" id="task-notify" checked> Discord alert
+      </label>
+      <button class="submit-btn" id="submit-btn" onclick="submitTask()">Add task</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let _tasks       = [];
+let _selectedId  = null;
+let _pollTimer   = null;
+
+// ── Autosize textarea ─────────────────────────────────────────────────────
+function autosizeTA(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Quick add ─────────────────────────────────────────────────────────────
+function quickAdd(agent, desc) {
+  document.getElementById('task-desc').value  = desc;
+  document.getElementById('task-agent').value = agent;
+  autosizeTA(document.getElementById('task-desc'));
+}
+
+// ── Agent display ─────────────────────────────────────────────────────────
+const AGENT_META = {
+  data:    { emoji: '📊', label: 'Data',    cls: 'badge-data'    },
+  cortona: { emoji: '🔮', label: 'Cortona', cls: 'badge-cortona' },
+  jarvis:  { emoji: '🤖', label: 'Jarvis',  cls: 'badge-jarvis'  },
+  council: { emoji: '⚡', label: 'Council', cls: 'badge-council' },
+};
+const STATUS_DOT = {
+  pending:   'dot-pending',
+  running:   'dot-running',
+  completed: 'dot-completed',
+  failed:    'dot-failed',
+  cancelled: 'dot-cancelled',
+};
+const STATUS_LABEL = {
+  pending:   'pending',
+  running:   'running…',
+  completed: 'done',
+  failed:    'failed',
+  cancelled: 'cancelled',
+};
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return iso; }
+}
+function fmtAge(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60)  return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  return `${Math.round(diff/3600)}h ago`;
+}
+
+// ── Render queue list ─────────────────────────────────────────────────────
+function renderQueue(tasks) {
+  const list = document.getElementById('queue-list');
+  const empty = document.getElementById('queue-empty');
+
+  if (!tasks.length) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    list.appendChild(empty);
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Preserve selected task position
+  const cards = tasks.map(t => {
+    const m  = AGENT_META[t.agent] || { emoji: '?', label: t.agent, cls: '' };
+    const pCls = `p${Math.min(t.priority, 10)}`;
+    const canCancel = t.status === 'pending';
+    return `
+      <div class="task-card ${_selectedId === t.id ? 'selected' : ''}" id="card-${t.id}"
+           onclick="selectTask('${t.id}')">
+        <div class="priority-bar ${pCls}"></div>
+        <div class="task-card-top">
+          <span class="task-agent-badge ${m.cls}">${m.emoji} ${m.label}</span>
+          <span class="task-title">${escHtml(t.title)}</span>
+          ${canCancel ? `<button class="task-cancel-btn" onclick="cancelTask(event,'${t.id}')" title="Cancel">✕</button>` : ''}
+        </div>
+        <div class="task-meta">
+          <span class="task-status-dot ${STATUS_DOT[t.status] || ''}"></span>
+          <span>${STATUS_LABEL[t.status] || t.status}</span>
+          <span style="margin-left:auto">${fmtAge(t.created_at)}</span>
+        </div>
+      </div>`;
+  });
+
+  list.innerHTML = cards.join('');
+}
+
+// ── Render detail pane ────────────────────────────────────────────────────
+function renderDetail(task) {
+  const emptyEl   = document.getElementById('detail-empty');
+  const contentEl = document.getElementById('detail-content');
+
+  if (!task) {
+    emptyEl.style.display = 'flex';
+    contentEl.classList.remove('visible');
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  contentEl.classList.add('visible');
+
+  const m = AGENT_META[task.agent] || { emoji: '?', label: task.agent, cls: '' };
+
+  let bodyHTML = '';
+  if (task.status === 'running') {
+    bodyHTML = `<div class="detail-running-msg">
+      <div class="spinner"></div>
+      Agent is working on this task…
+    </div>`;
+  } else if (task.status === 'completed' && task.result) {
+    bodyHTML = `<div class="detail-result">${renderMd(task.result)}</div>`;
+  } else if (task.status === 'failed' && task.error) {
+    bodyHTML = `<div class="detail-error">⚠ ${escHtml(task.error)}</div>`;
+  } else if (task.status === 'pending') {
+    bodyHTML = `<div style="color:var(--text-dim);font-size:13px">Waiting in queue…</div>`;
+  } else if (task.status === 'cancelled') {
+    bodyHTML = `<div style="color:var(--text-dim);font-size:13px">Task was cancelled.</div>`;
+  }
+
+  contentEl.innerHTML = `
+    <div class="detail-agent-header">
+      <span class="task-agent-badge ${m.cls}">${m.emoji} ${m.label}</span>
+      <span class="task-status-dot ${STATUS_DOT[task.status] || ''}" style="width:8px;height:8px"></span>
+      <span style="font-size:12px;color:var(--text-dim)">${STATUS_LABEL[task.status] || task.status}</span>
+    </div>
+    <div class="detail-title">${escHtml(task.title)}</div>
+    <div class="detail-meta">
+      <span>Priority: P${task.priority}</span>
+      <span>Created: ${fmtTime(task.created_at)}</span>
+      ${task.started_at   ? `<span>Started: ${fmtTime(task.started_at)}</span>` : ''}
+      ${task.completed_at ? `<span>Finished: ${fmtTime(task.completed_at)}</span>` : ''}
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px;padding:8px 12px;background:var(--bg-secondary);border-radius:6px;">
+      ${escHtml(task.description)}
+    </div>
+    ${bodyHTML}
+  `;
+}
+
+// ── Select task ───────────────────────────────────────────────────────────
+function selectTask(id) {
+  _selectedId = id;
+  document.querySelectorAll('.task-card').forEach(c => {
+    c.classList.toggle('selected', c.id === `card-${id}`);
+  });
+  const task = _tasks.find(t => t.id === id);
+  renderDetail(task || null);
+}
+
+// ── Update counts bar ─────────────────────────────────────────────────────
+function updateCounts(counts) {
+  const fmt = (key, icon, label) => {
+    const n = counts[key] || 0;
+    document.getElementById(`cnt-${key}`).textContent = `${icon} ${n} ${label}`;
+  };
+  fmt('pending',   '●', 'pending');
+  fmt('running',   '●', 'running');
+  fmt('completed', '✓', 'done');
+  fmt('failed',    '✕', 'failed');
+}
+
+// ── Poll ──────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    // Fetch tasks and worker status in parallel
+    const [tasksRes, statusRes] = await Promise.all([
+      fetch('/api/tasks'),
+      fetch('/api/tasks/status'),
+    ]);
+    const tasksJson  = await tasksRes.json();
+    const statusJson = await statusRes.json();
+
+    if (tasksJson.ok) {
+      _tasks = tasksJson.data.tasks || [];
+      renderQueue(_tasks);
+      updateCounts(tasksJson.data.counts || {});
+
+      // Keep detail pane up to date for selected task
+      if (_selectedId) {
+        const updated = _tasks.find(t => t.id === _selectedId);
+        renderDetail(updated || null);
+      }
+
+      const updatedEl = document.getElementById('queue-updated');
+      updatedEl.textContent = 'updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    }
+
+    if (statusJson.ok) {
+      const w  = statusJson.data;
+      const el = document.getElementById('worker-status');
+      el.textContent = w.worker_alive ? '⚙ worker online' : '⚠ worker offline';
+      el.style.color = w.worker_alive ? '#34d399' : '#f87171';
+    }
+  } catch (err) {
+    console.warn('Poll error:', err);
+  }
+}
+
+function startPolling() {
+  poll();
+  _pollTimer = setInterval(poll, 3000);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(_pollTimer);
+  } else {
+    startPolling();
+  }
+});
+
+// ── Submit task ───────────────────────────────────────────────────────────
+async function submitTask() {
+  const desc   = document.getElementById('task-desc').value.trim();
+  const agent  = document.getElementById('task-agent').value;
+  const prio   = parseInt(document.getElementById('task-priority').value);
+  const notify = document.getElementById('task-notify').checked;
+
+  if (!desc) {
+    document.getElementById('task-desc').focus();
+    return;
+  }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+
+  try {
+    const res  = await fetch('/api/tasks', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ agent, description: desc, priority: prio, notify }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      document.getElementById('task-desc').value = '';
+      document.getElementById('task-desc').style.height = 'auto';
+      await poll();
+      // Auto-select the new task
+      if (json.data.task_id) selectTask(json.data.task_id);
+    } else {
+      alert('Error: ' + (json.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Request failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add task';
+  }
+}
+
+// ── Cancel task ───────────────────────────────────────────────────────────
+async function cancelTask(e, id) {
+  e.stopPropagation();
+  const res  = await fetch(`/api/tasks/${id}/cancel`, { method: 'POST' });
+  const json = await res.json();
+  if (json.ok) await poll();
+}
+
+// ── Clear completed ───────────────────────────────────────────────────────
+async function clearCompleted() {
+  const res  = await fetch('/api/tasks/clear', { method: 'POST' });
+  const json = await res.json();
+  if (json.ok) {
+    if (_selectedId) {
+      const stillExists = _tasks.find(t => t.id === _selectedId &&
+        !['completed','failed','cancelled'].includes(t.status));
+      if (!stillExists) {
+        _selectedId = null;
+        renderDetail(null);
+      }
+    }
+    await poll();
+  }
+}
+
+// ── Markdown-lite ─────────────────────────────────────────────────────────
+function renderMd(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/^### (.+)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1>$1</h1>')
+    .replace(/\n/g,'<br>');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+startPolling();
+</script>
+{% endblock %}

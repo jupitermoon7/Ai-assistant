@@ -214,21 +214,71 @@ class AgentsPlugin(BasePlugin):
             extra_executor=self._make_executor(exclude="jarvis"),
         )
 
-        log.info("[agents] Data, Cortona, and Jarvis are online (peer consultation wired).")
+        # ── Task queue + worker ────────────────────────────────────────────────
+        from core.task_queue import TaskQueue, TaskWorker
+        from pathlib import Path
+
+        db_path = Path("pi-assistant/data/memory/tasks.db")
+
+        self._task_queue = TaskQueue(db_path)
+
+        def _council_task(description: str) -> str:
+            """Wrapper so council tasks work the same as single-agent tasks."""
+            result = self.handle_council(message=description)
+            if "rounds" not in result:
+                return result.get("error", "Council failed")
+            # Flatten rounds into a readable report
+            parts = [f"# Council Report\n**Question:** {description}\n"]
+            for r in result["rounds"]:
+                parts.append(f"\n## Round {r['round']} — {r['label']}")
+                parts.append(f"\n**📊 Data:**\n{r['data']}")
+                parts.append(f"\n**🔮 Cortona:**\n{r['cortona']}")
+                parts.append(f"\n**🤖 Jarvis:**\n{r['jarvis']}")
+            return "\n".join(parts)
+
+        def _notifier(title: str, body: str) -> None:
+            try:
+                from core.emailer import send_discord_report
+                send_discord_report(title, body)
+            except Exception as exc:
+                log.warning(f"[agents] Notification failed: {exc}")
+
+        self._task_worker = TaskWorker(
+            queue     = self._task_queue,
+            agent_fns = {
+                "data":    self._data.consult,
+                "cortona": self._cortona.consult,
+                "jarvis":  self._jarvis.consult,
+                "council": _council_task,
+            },
+            notifier  = _notifier,
+        )
+        self._task_worker.start()
+
+        log.info("[agents] Data, Cortona, and Jarvis are online (peer consultation + task queue wired).")
 
     def teardown(self) -> None:
+        if hasattr(self, "_task_worker"):
+            self._task_worker.stop()
         log.info("[agents] Agents offline.")
 
     def get_commands(self) -> dict[str, Any]:
         return {
-            "chat_data":     self.handle_data,
-            "chat_cortona":  self.handle_cortona,
-            "chat_jarvis":   self.handle_jarvis,
-            "clear_data":    self.clear_data,
-            "clear_cortona": self.clear_cortona,
-            "clear_jarvis":  self.clear_jarvis,
-            "agents_status": self.agents_status,
-            "council":       self.handle_council,
+            "chat_data":       self.handle_data,
+            "chat_cortona":    self.handle_cortona,
+            "chat_jarvis":     self.handle_jarvis,
+            "clear_data":      self.clear_data,
+            "clear_cortona":   self.clear_cortona,
+            "clear_jarvis":    self.clear_jarvis,
+            "agents_status":   self.agents_status,
+            "council":         self.handle_council,
+            # Task queue
+            "queue_task":      self.queue_task,
+            "list_tasks":      self.list_tasks,
+            "task_result":     self.task_result,
+            "cancel_task":     self.cancel_task,
+            "clear_tasks":     self.clear_tasks,
+            "tasks_status":    self.tasks_status,
         }
 
     # ── Chat handlers ──────────────────────────────────────────────────────────
@@ -332,6 +382,52 @@ class AgentsPlugin(BasePlugin):
                     "jarvis":  jarvis_r2,
                 },
             ],
+        }
+
+    # ── Task queue handlers ────────────────────────────────────────────────────
+
+    def queue_task(self, agent: str = "", description: str = "",
+                   title: str = "", priority: int = 5, notify: bool = True, **_) -> dict:
+        if not agent:
+            return {"error": "agent is required (data | cortona | jarvis | council)"}
+        if not description:
+            return {"error": "description is required"}
+        if agent.lower() not in ("data", "cortona", "jarvis", "council"):
+            return {"error": f"Unknown agent '{agent}'. Use: data, cortona, jarvis, council"}
+        task = self._task_queue.add(agent=agent, description=description,
+                                    title=title or None, priority=priority, notify=notify)
+        return {"queued": True, "task_id": task.id, "agent": task.agent,
+                "title": task.title, "priority": task.priority}
+
+    def list_tasks(self, limit: int = 50, **_) -> dict:
+        tasks = self._task_queue.list_all(limit=limit)
+        return {
+            "counts": self._task_queue.counts(),
+            "tasks": [_task_to_dict(t) for t in tasks],
+        }
+
+    def task_result(self, task_id: str = "", **_) -> dict:
+        if not task_id:
+            return {"error": "task_id is required"}
+        task = self._task_queue.get(task_id)
+        if not task:
+            return {"error": f"Task '{task_id}' not found"}
+        return _task_to_dict(task)
+
+    def cancel_task(self, task_id: str = "", **_) -> dict:
+        if not task_id:
+            return {"error": "task_id is required"}
+        ok = self._task_queue.cancel(task_id)
+        return {"cancelled": ok, "task_id": task_id}
+
+    def clear_tasks(self, **_) -> dict:
+        count = self._task_queue.clear_completed()
+        return {"cleared": count}
+
+    def tasks_status(self, **_) -> dict:
+        return {
+            "worker_alive": self._task_worker.is_alive,
+            "counts": self._task_queue.counts(),
         }
 
     # ── Clear handlers ─────────────────────────────────────────────────────────
@@ -463,6 +559,23 @@ def _peer_tools(exclude: str) -> list[dict]:
     name_map = {"data": "consult_data", "cortona": "consult_cortona", "jarvis": "consult_jarvis"}
     skip = name_map.get(exclude)
     return [t for t in _ALL_PEER_TOOLS if t["function"]["name"] != skip]
+
+
+def _task_to_dict(task) -> dict:
+    return {
+        "id":           task.id,
+        "agent":        task.agent,
+        "title":        task.title,
+        "description":  task.description,
+        "priority":     task.priority,
+        "status":       task.status,
+        "result":       task.result,
+        "error":        task.error,
+        "notify":       task.notify,
+        "created_at":   task.created_at,
+        "started_at":   task.started_at,
+        "completed_at": task.completed_at,
+    }
 
 
 def _now() -> str:

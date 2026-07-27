@@ -158,6 +158,12 @@ def agent_council():
     return render_template("council.html")
 
 
+@main_bp.route("/agents/tasks")
+@login_required
+def agent_tasks():
+    return render_template("tasks.html")
+
+
 @main_bp.route("/agents/jarvis")
 @login_required
 def agent_jarvis():

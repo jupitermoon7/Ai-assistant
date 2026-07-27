@@ -226,6 +226,9 @@
       <a href="{{ url_for('main.agent_council') }}" class="{{ 'active' if request.endpoint == 'main.agent_council' }}" style="border-left: 2px solid gold; margin-top:4px;">
         ⚡ Council
       </a>
+      <a href="{{ url_for('main.agent_tasks') }}" class="{{ 'active' if request.endpoint == 'main.agent_tasks' }}" style="border-left: 2px solid #f97316; margin-top:4px;">
+        📋 Tasks
+      </a>
       <div style="padding:10px 18px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);font-weight:600">System</div>
       <a href="{{ url_for('main.overview') }}"  class="{{ 'active' if request.endpoint == 'main.overview' }}">
         ◉ Overview
