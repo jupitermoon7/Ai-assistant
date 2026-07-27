@@ -5,18 +5,19 @@ import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
+// PORT is only needed for the dev server — not during `vite build`.
+// Fall back to a dummy value so the build doesn't throw.
 const rawPort = process.env.PORT;
+const isBuild = process.argv.includes('build');
+const port = rawPort ? Number(rawPort) : 3000;
 
-if (!rawPort) {
-  throw new Error(
-    'PORT environment variable is required but was not provided.',
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
+if (!isBuild) {
+  if (!rawPort) {
+    throw new Error('PORT environment variable is required but was not provided.');
+  }
+  if (Number.isNaN(port) || port <= 0) {
+    throw new Error(`Invalid PORT value: "${rawPort}"`);
+  }
 }
 
 const basePath = process.env.BASE_PATH;
@@ -73,6 +74,8 @@ export default defineConfig({
       strict: true,
     },
     proxy: {
+      // Forward /node-api/* to the API server in dev.
+      // In production, Replit's router handles this natively.
       '/node-api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
