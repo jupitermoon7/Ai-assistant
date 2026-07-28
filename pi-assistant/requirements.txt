@@ -30,7 +30,7 @@ alembic==1.13.2            # Schema migrations for future upgrades
 
 # Utilities
 rich==13.7.1               # Beautiful console output and log formatting
-click==8.1.7               # CLI helper for management commands
+click>=8.1.8               # CLI helper for management commands
 python-dateutil==2.9.0     # Date/time parsing utilities
 
 # Web scraping & live data
